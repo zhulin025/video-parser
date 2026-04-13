@@ -6,16 +6,8 @@
   },
   "rewrites": [
     {
-      "source": "/api/(.*)",
-      "destination": "/api/$1"
-    },
-    {
       "source": "/",
-      "destination": "/public/index.html"
-    },
-    {
-       "source": "/(.*)",
-       "destination": "/public/$1"
+      "destination": "/index.html"
     }
   ]
 }
