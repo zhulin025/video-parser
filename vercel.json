@@ -1,7 +1,9 @@
 {
-  "cleanUrls": true,
   "rewrites": [
-    { "source": "/", "destination": "/public/index.html" }
+    { "source": "/api/parse", "destination": "/api/parse.js" },
+    { "source": "/api/download", "destination": "/api/download.js" },
+    { "source": "/", "destination": "/public/index.html" },
+    { "source": "/(.*)", "destination": "/public/$1" }
   ],
   "functions": {
     "api/parse.js": {
