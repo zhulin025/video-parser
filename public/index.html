@@ -1,0 +1,490 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>视频原始链接解析工具</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg: #0f0f13;
+      --surface: #1a1a24;
+      --border: #2a2a3a;
+      --accent: #7c6af7;
+      --accent-glow: rgba(124, 106, 247, 0.25);
+      --text: #e8e8f0;
+      --text-muted: #6b6b80;
+      --green: #34d399;
+      --red: #f87171;
+      --tag-bg: #1e1e2e;
+    }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 48px 16px;
+    }
+
+    .container { width: 100%; max-width: 720px; }
+
+    header { text-align: center; margin-bottom: 48px; }
+    header h1 {
+      font-size: 28px; font-weight: 700; letter-spacing: -0.5px;
+      background: linear-gradient(135deg, #a78bfa, #7c6af7, #60a5fa);
+      -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+    header p { margin-top: 8px; color: var(--text-muted); font-size: 14px; }
+
+    .badge-row { display: flex; justify-content: center; gap: 8px; margin-top: 16px; flex-wrap: wrap; }
+    .badge {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 20px; padding: 4px 12px;
+      font-size: 12px; color: var(--text-muted);
+    }
+
+    /* Input area */
+    .input-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 24px;
+      margin-bottom: 24px;
+    }
+
+    label { display: block; font-size: 13px; color: var(--text-muted); margin-bottom: 8px; }
+
+    textarea {
+      width: 100%; height: 90px;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      color: var(--text);
+      font-size: 14px;
+      padding: 12px 14px;
+      resize: vertical;
+      outline: none;
+      transition: border-color 0.2s;
+      font-family: inherit;
+      line-height: 1.5;
+    }
+    textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-glow); }
+    textarea::placeholder { color: var(--text-muted); }
+
+    .btn-row { display: flex; gap: 10px; margin-top: 14px; }
+
+    button {
+      cursor: pointer; border: none; border-radius: 10px;
+      font-size: 14px; font-weight: 600;
+      padding: 10px 22px; transition: all 0.15s;
+    }
+    .btn-primary {
+      background: var(--accent); color: #fff; flex: 1;
+    }
+    .btn-primary:hover { background: #6c5ce7; transform: translateY(-1px); }
+    .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
+
+    .btn-clear {
+      background: transparent;
+      border: 1px solid var(--border);
+      color: var(--text-muted);
+      padding: 10px 16px;
+    }
+    .btn-clear:hover { border-color: var(--text-muted); color: var(--text); }
+
+    /* Loading */
+    .loading {
+      display: none; align-items: center; gap: 10px;
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 12px; padding: 18px 20px;
+      margin-bottom: 20px; font-size: 14px; color: var(--text-muted);
+    }
+    .loading.visible { display: flex; }
+    .spinner {
+      width: 18px; height: 18px; border: 2px solid var(--border);
+      border-top-color: var(--accent); border-radius: 50%;
+      animation: spin 0.7s linear infinite; flex-shrink: 0;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* Error */
+    .error-box {
+      display: none;
+      background: rgba(248, 113, 113, 0.08);
+      border: 1px solid rgba(248, 113, 113, 0.3);
+      border-radius: 12px; padding: 16px 20px;
+      margin-bottom: 20px; font-size: 14px; color: var(--red);
+    }
+    .error-box.visible { display: block; }
+
+    /* Result card */
+    .result-card {
+      display: none;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      overflow: hidden;
+    }
+    .result-card.visible { display: block; }
+
+    .result-header {
+      display: flex; align-items: center; gap: 16px;
+      padding: 20px 24px; border-bottom: 1px solid var(--border);
+    }
+    .thumb {
+      width: 72px; height: 72px; border-radius: 10px;
+      object-fit: cover; background: var(--bg); flex-shrink: 0;
+    }
+    .meta { flex: 1; overflow: hidden; }
+    .meta-title {
+      font-size: 15px; font-weight: 600; color: var(--text);
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    .meta-sub { font-size: 12px; color: var(--text-muted); margin-top: 4px; display: flex; gap: 10px; flex-wrap: wrap; }
+    .meta-tag {
+      background: var(--tag-bg); border: 1px solid var(--border);
+      border-radius: 4px; padding: 2px 7px; font-size: 11px;
+    }
+
+    .url-section { padding: 20px 24px; }
+    .section-title {
+      font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em;
+      color: var(--text-muted); margin-bottom: 14px;
+    }
+
+    .url-group { margin-bottom: 20px; }
+    .url-group-label {
+      font-size: 12px; color: var(--accent); font-weight: 600;
+      margin-bottom: 8px; display: flex; align-items: center; gap: 6px;
+    }
+    .dot { width: 6px; height: 6px; background: var(--accent); border-radius: 50%; }
+
+    .url-item {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 12px 14px;
+      margin-bottom: 8px;
+      display: flex; align-items: center; gap: 10px;
+    }
+    .url-text {
+      flex: 1; font-size: 12px; color: var(--text-muted);
+      font-family: 'SF Mono', 'Fira Code', monospace;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+      cursor: pointer;
+    }
+    .url-text:hover { color: var(--text); }
+
+    .url-actions { display: flex; gap: 6px; flex-shrink: 0; }
+    .url-actions button {
+      font-size: 11px; font-weight: 500;
+      padding: 5px 10px; border-radius: 6px;
+    }
+    .btn-copy {
+      background: rgba(124, 106, 247, 0.15);
+      border: 1px solid rgba(124, 106, 247, 0.3);
+      color: var(--accent);
+    }
+    .btn-copy:hover { background: rgba(124, 106, 247, 0.25); }
+    .btn-copy.copied { background: rgba(52, 211, 153, 0.15); border-color: rgba(52, 211, 153, 0.3); color: var(--green); }
+
+    .btn-open {
+      background: rgba(52, 211, 153, 0.1);
+      border: 1px solid rgba(52, 211, 153, 0.25);
+      color: var(--green);
+    }
+    .btn-open:hover { background: rgba(52, 211, 153, 0.2); }
+
+    .btn-download {
+      background: rgba(96, 165, 250, 0.15);
+      border: 1px solid rgba(96, 165, 250, 0.35);
+      color: #60a5fa;
+      display: flex; align-items: center; gap: 4px;
+    }
+    .btn-download:hover { background: rgba(96, 165, 250, 0.28); }
+    .btn-download.downloading {
+      opacity: 0.6; cursor: not-allowed;
+      background: rgba(96, 165, 250, 0.08);
+    }
+    .btn-download svg { width: 11px; height: 11px; flex-shrink: 0; }
+
+    .hint {
+      font-size: 12px; color: var(--text-muted);
+      background: rgba(124, 106, 247, 0.06);
+      border: 1px solid rgba(124, 106, 247, 0.15);
+      border-radius: 8px; padding: 12px 14px;
+      margin-top: 4px; line-height: 1.6;
+    }
+
+    footer {
+      margin-top: 56px; text-align: center;
+      font-size: 12px; color: var(--text-muted); line-height: 2;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>视频原始链接解析</h1>
+      <p>从分享链接提取无水印的原始 CDN 播放地址</p>
+      <div class="badge-row">
+        <span class="badge">抖音</span>
+        <span class="badge">即梦</span>
+        <span class="badge">仅用于自有内容</span>
+      </div>
+    </header>
+
+    <div class="input-card">
+      <label>粘贴分享链接或分享文字（支持完整文字，会自动提取链接）</label>
+      <textarea id="urlInput" placeholder="例如：https://v.douyin.com/xxxxxxx/&#10;或直接粘贴抖音分享的完整文字也可以"></textarea>
+      <div class="btn-row">
+        <button class="btn-primary" id="parseBtn" onclick="parse()">解析</button>
+        <button class="btn-clear" onclick="clear()">清除</button>
+      </div>
+    </div>
+
+    <div class="loading" id="loading">
+      <div class="spinner"></div>
+      <span id="loadingText">正在解析链接...</span>
+    </div>
+
+    <div class="error-box" id="errorBox"></div>
+
+    <div class="result-card" id="resultCard">
+      <div class="result-header">
+        <img class="thumb" id="thumbImg" src="" alt="封面">
+        <div class="meta">
+          <div class="meta-title" id="videoTitle"></div>
+          <div class="meta-sub">
+            <span class="meta-tag" id="platformTag"></span>
+            <span id="authorTag"></span>
+            <span id="sizeTag"></span>
+            <span id="durationTag"></span>
+          </div>
+        </div>
+      </div>
+
+      <div class="url-section">
+        <div class="section-title">原始视频地址</div>
+        <div id="urlGroups"></div>
+        <div class="hint">
+          💡 <strong>play_addr 流媒体地址</strong>是平台内部播放地址，无水印。<br>
+          这些 CDN URL 有时效性（通常数小时内有效），请及时保存或下载。<br>
+          可用 <code>curl -L -o video.mp4 "链接"</code> 直接下载。
+        </div>
+      </div>
+    </div>
+
+    <footer>
+      本工具仅供解析你自己创作的视频，请勿用于下载他人内容<br>
+      CDN 地址由平台 API 返回，本工具不存储任何数据
+    </footer>
+  </div>
+
+  <script>
+    async function parse() {
+      const input = document.getElementById('urlInput').value.trim();
+      if (!input) return;
+
+      setLoading(true);
+      hideAll();
+
+      try {
+        const res = await fetch('/api/parse', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ url: input }),
+        });
+        const data = await res.json();
+
+        if (!data.success) {
+          showError(data.error);
+        } else {
+          showResult(data);
+        }
+      } catch (e) {
+        showError('网络请求失败: ' + e.message);
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    function clear() {
+      document.getElementById('urlInput').value = '';
+      hideAll();
+    }
+
+    function setLoading(on) {
+      document.getElementById('loading').classList.toggle('visible', on);
+      document.getElementById('parseBtn').disabled = on;
+      if (on) {
+        const steps = ['正在解析链接...', '跟踪重定向中...', '请求平台 API...', '提取 CDN 地址...'];
+        let i = 0;
+        window._loadTimer = setInterval(() => {
+          document.getElementById('loadingText').textContent = steps[Math.min(i++, steps.length - 1)];
+        }, 1200);
+      } else {
+        clearInterval(window._loadTimer);
+      }
+    }
+
+    function hideAll() {
+      document.getElementById('errorBox').classList.remove('visible');
+      document.getElementById('resultCard').classList.remove('visible');
+    }
+
+    function showError(msg) {
+      const el = document.getElementById('errorBox');
+      el.textContent = '解析失败：' + msg;
+      el.classList.add('visible');
+    }
+
+    function showResult(data) {
+      // 封面
+      const thumb = document.getElementById('thumbImg');
+      if (data.cover) {
+        thumb.src = data.cover;
+        thumb.onerror = () => { thumb.style.display = 'none'; };
+      } else {
+        thumb.style.display = 'none';
+      }
+
+      document.getElementById('videoTitle').textContent = data.title || '(无标题)';
+      document.getElementById('platformTag').textContent = data.platform === 'douyin' ? '抖音' : '即梦';
+
+      const author = document.getElementById('authorTag');
+      author.textContent = data.author ? '@' + data.author : '';
+
+      const sizeTag = document.getElementById('sizeTag');
+      if (data.width && data.height) {
+        sizeTag.textContent = `${data.width}×${data.height}`;
+      }
+
+      const durTag = document.getElementById('durationTag');
+      if (data.duration) {
+        const s = Math.round(data.duration / 1000);
+        durTag.textContent = `${s}s`;
+      }
+
+      // URL groups
+      const container = document.getElementById('urlGroups');
+      container.innerHTML = '';
+
+      const videoUrls = data.videoUrls || {};
+      let anyUrl = false;
+
+      const videoTitle = data.title || 'douyin_video';
+
+      for (const [groupName, urls] of Object.entries(videoUrls)) {
+        if (!urls || urls.length === 0) continue;
+        anyUrl = true;
+
+        // 判断是否显示下载按钮：抖音无水印组 或 即梦所有版本（直接打开会因无 Referer 而空白）
+        const isNoWatermark = groupName.includes('无水印') || groupName.includes('水印版');
+
+        const group = document.createElement('div');
+        group.className = 'url-group';
+
+        const label = document.createElement('div');
+        label.className = 'url-group-label';
+        label.innerHTML = `<span class="dot"></span>${groupName}`;
+        group.appendChild(label);
+
+        urls.forEach((url) => {
+          const item = document.createElement('div');
+          item.className = 'url-item';
+
+          const text = document.createElement('div');
+          text.className = 'url-text';
+          text.textContent = url;
+          text.title = url;
+          text.onclick = () => copyUrl(url, copyBtn);
+
+          const actions = document.createElement('div');
+          actions.className = 'url-actions';
+
+          const copyBtn = document.createElement('button');
+          copyBtn.className = 'btn-copy';
+          copyBtn.textContent = '复制';
+          copyBtn.onclick = () => copyUrl(url, copyBtn);
+
+          // 无水印组显示下载按钮
+          if (isNoWatermark) {
+            const dlBtn = document.createElement('button');
+            dlBtn.className = 'btn-download';
+            dlBtn.innerHTML = `<svg viewBox="0 0 16 16" fill="currentColor"><path d="M8 12l-4-4h2.5V4h3v4H12L8 12z"/><rect x="3" y="13" width="10" height="1.5" rx="0.75"/></svg>下载`;
+            dlBtn.onclick = () => downloadVideo(url, videoTitle, dlBtn);
+            actions.appendChild(copyBtn);
+            actions.appendChild(dlBtn);
+          } else {
+            const openBtn = document.createElement('button');
+            openBtn.className = 'btn-open';
+            openBtn.textContent = '打开';
+            openBtn.onclick = () => window.open(url, '_blank');
+            actions.appendChild(copyBtn);
+            actions.appendChild(openBtn);
+          }
+
+          item.appendChild(text);
+          item.appendChild(actions);
+          group.appendChild(item);
+        });
+
+        container.appendChild(group);
+      }
+
+      if (!anyUrl) {
+        container.innerHTML = '<div style="color:var(--red);font-size:13px">未获取到有效视频地址，平台 API 可能已变更</div>';
+      }
+
+      document.getElementById('resultCard').classList.add('visible');
+    }
+
+    async function copyUrl(url, btn) {
+      try {
+        await navigator.clipboard.writeText(url);
+        const orig = btn.textContent;
+        btn.textContent = '已复制!';
+        btn.classList.add('copied');
+        setTimeout(() => { btn.textContent = orig; btn.classList.remove('copied'); }, 1800);
+      } catch (_) {
+        prompt('手动复制此链接：', url);
+      }
+    }
+
+    function downloadVideo(url, title, btn) {
+      if (btn.classList.contains('downloading')) return;
+
+      // 通过后端代理下载，避免跨域问题
+      const proxyUrl = `/api/download?url=${encodeURIComponent(url)}&title=${encodeURIComponent(title)}`;
+      const a = document.createElement('a');
+      a.href = proxyUrl;
+      a.download = ''; // 文件名由后端 Content-Disposition 决定
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+
+      // 按钮状态反馈
+      btn.classList.add('downloading');
+      btn.innerHTML = `<svg viewBox="0 0 16 16" fill="currentColor"><path d="M8 12l-4-4h2.5V4h3v4H12L8 12z"/><rect x="3" y="13" width="10" height="1.5" rx="0.75"/></svg>下载中…`;
+      setTimeout(() => {
+        btn.classList.remove('downloading');
+        btn.innerHTML = `<svg viewBox="0 0 16 16" fill="currentColor"><path d="M8 12l-4-4h2.5V4h3v4H12L8 12z"/><rect x="3" y="13" width="10" height="1.5" rx="0.75"/></svg>下载`;
+      }, 4000);
+    }
+
+    // Enter 快捷键提交
+    document.addEventListener('DOMContentLoaded', () => {
+      document.getElementById('urlInput').addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) parse();
+      });
+    });
+  </script>
+</body>
+</html>
