@@ -4,7 +4,8 @@
   "description": "抖音视频原始CDN链接解析工具",
   "type": "commonjs",
   "scripts": {
-    "build": "echo 'no build needed'"
+    "start": "node server.js",
+    "dev": "node server.js"
   },
   "dependencies": {
     "axios": "^1.7.0",

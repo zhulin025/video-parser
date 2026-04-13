@@ -1,18 +1,15 @@
 {
-  "cleanUrls": true,
-  "functions": {
-    "api/parse.js": {
-      "maxDuration": 30
+  "version": 2,
+  "builds": [
+    {
+      "src": "server.js",
+      "use": "@vercel/node"
     }
-  },
-  "rewrites": [
+  ],
+  "routes": [
     {
-      "source": "/api/(.*)",
-      "destination": "/api/$1"
-    },
-    {
-      "source": "/",
-      "destination": "/index.html"
+      "src": "/(.*)",
+      "dest": "server.js"
     }
   ]
 }
