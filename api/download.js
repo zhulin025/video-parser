@@ -5,7 +5,7 @@ const MOBILE_UA = 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleW
 const PC_UA = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
 
 function getRefererForUrl(url) {
-  if (url.includes('jimeng.com') || url.includes('dreamnia') || url.includes('dreamina') || url.includes('ixigua.com')) {
+  if (url.includes('jimeng.com') || url.includes('dreamnia') || url.includes('dreamina') || url.includes('ixigua.com') || url.includes('vlabvod.com')) {
     return 'https://jimeng.jianying.com/';
   }
   return 'https://www.douyin.com/';
@@ -21,7 +21,7 @@ function streamFromUrl(url, destRes, redirectCount = 0) {
   const lib = isHttps ? https : http;
   const req = lib.get(url, {
     headers: {
-      'User-Agent': url.includes('jimeng') || url.includes('dreamnia') || url.includes('dreamina') || url.includes('ixigua.com') ? PC_UA : MOBILE_UA,
+      'User-Agent': url.includes('jimeng') || url.includes('dreamnia') || url.includes('dreamina') || url.includes('ixigua.com') || url.includes('vlabvod.com') ? PC_UA : MOBILE_UA,
       'Referer': getRefererForUrl(url),
     },
     timeout: 30000,
@@ -70,6 +70,7 @@ module.exports = function handler(req, res) {
     'dreamnia.jimeng.com',
     'dreamina-de.jianying.com',
     'ixigua.com',
+    'vlabvod.com',
   ];
   const isAllowed = videoUrl && ALLOWED_DOMAINS.some(d => videoUrl.includes(d));
   if (!isAllowed) {

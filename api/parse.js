@@ -142,9 +142,19 @@ async function parseJimeng(rawUrl) {
   }
 
   const downloadInfo = metadata.download_info || {};
+  const itemInfo = await fetchJimengItemInfo(videoId, finalUrl);
+  const cleanUrls = collectJimengItemInfoVideoUrls(itemInfo);
+
+  const videoUrls = {};
+  if (cleanUrls.length > 0) {
+    videoUrls['无水印原始播放流'] = cleanUrls;
+  }
+
   const collectionList = pageInfo?.collection_info?.collection_list || [];
-  const cleanCandidates = collectionList
-    .map(item => item?.creation_info?.metadata)
+  const landingCandidates = [
+    ...collectionList.map(item => item?.creation_info?.metadata),
+    ...(pageInfo?.creation_list || []).map(item => item?.metadata),
+  ]
     .filter(item => item?.video_url)
     .sort((a, b) => {
       if (a.video_id === videoId) return -1;
@@ -154,9 +164,8 @@ async function parseJimeng(rawUrl) {
     .map(item => item.video_url)
     .filter(url => !url.includes('lr=display_watermark') && url.includes('cd=0%7C0%7C0%7C3'));
 
-  const videoUrls = {};
-  if (cleanCandidates.length > 0) {
-    videoUrls['无水印原始播放流'] = [...new Set(cleanCandidates)];
+  if (!videoUrls['无水印原始播放流'] && landingCandidates.length > 0) {
+    videoUrls['无水印原始播放流'] = [...new Set(landingCandidates)];
   } else if (metadata.video_url && !metadata.video_url.includes('lr=display_watermark')) {
     videoUrls['无水印原始播放流'] = [metadata.video_url];
   }
@@ -176,6 +185,51 @@ async function parseJimeng(rawUrl) {
     duration: 0,
     videoUrls,
   };
+}
+
+async function fetchJimengItemInfo(videoId, referer) {
+  const url = 'https://jimeng.jianying.com/mweb/v1/get_item_info?uid=0&aid=581595&app_name=dreamina&duanwai_huiliu_page=1';
+  try {
+    const resp = await axios.post(url, {
+      published_item_id: videoId,
+      pack_item_opt: {
+        need_follow_info: true,
+      },
+    }, {
+      headers: {
+        'Content-Type': 'application/json',
+        'User-Agent': PC_UA,
+        'Referer': referer,
+        'Accept': 'application/json, text/plain, */*',
+        'appid': '581595',
+        'sign-ver': '1',
+      },
+      timeout: 20000,
+    });
+    if (resp.data?.ret !== '0' && resp.data?.ret !== 0) {
+      return null;
+    }
+    return resp.data?.data || null;
+  } catch (_) {
+    return null;
+  }
+}
+
+function collectJimengItemInfoVideoUrls(itemInfo) {
+  const video = itemInfo?.video || {};
+  const transcoded = video.transcoded_video || {};
+  const candidates = [
+    transcoded.origin?.video_url,
+    transcoded['1080p']?.video_url,
+    transcoded['720p']?.video_url,
+    transcoded['480p']?.video_url,
+    transcoded['360p']?.video_url,
+    video.origin_video?.video_url,
+  ];
+
+  return [...new Set(candidates.filter(url => {
+    return url && !url.includes('lr=display_watermark');
+  }))];
 }
 
 // Vercel serverless function 入口

@@ -202,10 +202,63 @@ cd=0%7C0%7C1%7C3
 
 其中 `lr=display_watermark...` 表示展示水印版本，`cd=0|0|1|3` 中间的 `1` 也对应水印版本。旧实现尝试删除 `lr` 或把 `cd=0|0|1|3` 改成 `cd=0|0|0|3`，但这是猜 URL，不稳定。
 
-真正应该优先读取的是合集列表里的原始播放流：
+这些字段可以作为水印版本参考，但不要把它们当成最终无水印地址，也不要靠字符串替换猜 URL。
+
+### 5. 请求作品详情接口获取当前作品原始流
+
+当前分享作品的高码率无水印流，应优先通过 mweb 作品详情接口获取：
+
+```text
+POST https://jimeng.jianying.com/mweb/v1/get_item_info?uid=0&aid=581595&app_name=dreamina&duanwai_huiliu_page=1
+```
+
+请求 body：
+
+```json
+{
+  "published_item_id": "7646971490071645464",
+  "pack_item_opt": {
+    "need_follow_info": true
+  }
+}
+```
+
+这里的 `published_item_id` 就是分享落地页 query 里的 `id`。
+
+响应里的优先字段是：
+
+```text
+data.video.transcoded_video.origin.video_url
+```
+
+这个字段通常是最高码率版本，例如新样例《老太乘碟赴三体》返回的对象路径是：
+
+```text
+tos-cn-v-148450/oYoAEl4o9SGrDgf6hgC4JATDLExQIhgKQ18hOs/
+```
+
+它和其它网站提取到的 `v26-default.ixigua.com/.../oYoAEl4o9SGrDgf6hgC4JATDLExQIhgKQ18hOs/...` 是同一个视频对象。CDN 域名可能被实时调度到 `v*-artist.vlabvod.com`、`v26-default.ixigua.com` 等，但路径对象、码率和无水印参数才是关键。
+
+当前项目按下面顺序返回无水印候选：
+
+```js
+const candidates = [
+  transcoded.origin?.video_url,
+  transcoded['1080p']?.video_url,
+  transcoded['720p']?.video_url,
+  transcoded['480p']?.video_url,
+  transcoded['360p']?.video_url,
+  video.origin_video?.video_url,
+];
+```
+
+### 6. 落地页候选作为兜底
+
+有些分享页还会在落地页 API 的列表字段里返回无水印播放流：
 
 ```text
 data.page_info.collection_info.collection_list[*].creation_info.metadata.video_url
+data.page_info.creation_list[*].metadata.video_url
 ```
 
 这些 URL 的特征是：
@@ -223,11 +276,11 @@ v26-dreamina-de.jianying.com
 v26-default.ixigua.com
 ```
 
-你看到其它网站提取出的 `v26-default.ixigua.com/...` 就属于这一类。域名和签名段会随时间、CDN 调度和请求环境变化，但判断标准不是固定域名，而是 API 字段路径和水印参数。
+域名和签名段会随时间、CDN 调度和请求环境变化，但判断标准不是固定域名，而是 API 字段路径和水印参数。
 
-### 5. 匹配当前分享作品
+### 7. 匹配当前分享作品
 
-`collection_list` 里可能包含多条作品，所以项目会优先找：
+`collection_list` 或 `creation_list` 里可能包含多条作品，所以项目会优先找：
 
 ```js
 metadata.video_id === videoId
@@ -242,6 +295,7 @@ metadata.video_id === videoId
 ```js
 const cleanCandidates = collectionList
   .map(item => item?.creation_info?.metadata)
+  .concat((pageInfo?.creation_list || []).map(item => item?.metadata))
   .filter(item => item?.video_url)
   .sort((a, b) => {
     if (a.video_id === videoId) return -1;
@@ -258,7 +312,7 @@ const cleanCandidates = collectionList
 videoUrls['无水印原始播放流'] = [...new Set(cleanCandidates)];
 ```
 
-### 6. 保留带水印地址作参考
+### 8. 保留带水印地址作参考
 
 项目仍然会返回：
 
@@ -389,10 +443,11 @@ Vercel 会根据 `vercel.json` 使用 `server.js` 作为 Node 函数入口。
 ## 部署注意事项
 
 - CDN 视频地址有时效性，解析后应尽快下载。
-- 即梦的无水印地址不要靠字符串替换猜测，应从 `collection_info.collection_list[*].creation_info.metadata.video_url` 获取。
+- 即梦的无水印地址不要靠字符串替换猜测，应优先从 `/mweb/v1/get_item_info` 的 `data.video.transcoded_video.origin.video_url` 获取。
+- `collection_info.collection_list[*].creation_info.metadata.video_url` 和 `creation_list[*].metadata.video_url` 只作为落地页兜底候选。
 - 即梦 CDN 域名可能变化，下载代理白名单需要按实际返回域名维护。
 - 部分 CDN 需要正确的 `Referer` 和桌面端 `User-Agent`，否则可能返回空白、403 或无法下载。
-- 如果平台接口结构变化，优先打印并检查完整响应中的 `metadata`、`download_info`、`collection_info`。
+- 如果平台接口结构变化，优先打印并检查完整响应中的 `video.transcoded_video`、`metadata`、`download_info`、`collection_info`、`creation_list`。
 
 ## 调试命令
 
