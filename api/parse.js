@@ -3,6 +3,7 @@ const https = require('https');
 const http = require('http');
 
 const MOBILE_UA = 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.0 Mobile/15E148 Safari/604.1';
+const PC_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
 
 function followRedirects(url, maxRedirects = 8) {
   return new Promise((resolve, reject) => {
@@ -97,6 +98,86 @@ async function parseDouyin(rawUrl) {
   };
 }
 
+async function parseJimeng(rawUrl) {
+  const finalUrl = await followRedirects(rawUrl);
+
+  let params = {};
+  let videoId = null;
+  try {
+    const u = new URL(finalUrl);
+    u.searchParams.forEach((value, key) => { params[key] = value; });
+    videoId = params.id;
+  } catch (_) {}
+
+  if (!videoId) {
+    throw new Error(`无法从即梦链接提取视频ID，请确认链接格式正确: ${finalUrl}`);
+  }
+
+  const apiUrl = 'https://jimeng.jianying.com/luckycat/cn/jianying/campaign/v1/dreamina/share/landing_page?uid=0&aid=581595&app_name=dreamina&duanwai_huiliu_page=1';
+  const resp = await axios.post(apiUrl, {
+    query_params: params,
+    item_id: videoId,
+  }, {
+    headers: {
+      'Content-Type': 'application/json',
+      'User-Agent': PC_UA,
+      'Referer': finalUrl,
+      'Accept': 'application/json, text/plain, */*',
+      'appid': '581595',
+      'sign-ver': '1',
+    },
+    timeout: 20000,
+  });
+
+  const data = resp.data;
+  if (data.err_no !== 0) {
+    throw new Error(`即梦 API 返回错误: ${data.err_tips || data.err_no}`);
+  }
+
+  const pageInfo = data.data?.page_info;
+  const creation = pageInfo?.creation;
+  const metadata = creation?.metadata;
+  if (!metadata) {
+    throw new Error('即梦 API 返回结构异常，请检查链接是否有效');
+  }
+
+  const downloadInfo = metadata.download_info || {};
+  const collectionList = pageInfo?.collection_info?.collection_list || [];
+  const cleanCandidates = collectionList
+    .map(item => item?.creation_info?.metadata)
+    .filter(item => item?.video_url)
+    .sort((a, b) => {
+      if (a.video_id === videoId) return -1;
+      if (b.video_id === videoId) return 1;
+      return 0;
+    })
+    .map(item => item.video_url)
+    .filter(url => !url.includes('lr=display_watermark') && url.includes('cd=0%7C0%7C0%7C3'));
+
+  const videoUrls = {};
+  if (cleanCandidates.length > 0) {
+    videoUrls['无水印原始播放流'] = [...new Set(cleanCandidates)];
+  } else if (metadata.video_url && !metadata.video_url.includes('lr=display_watermark')) {
+    videoUrls['无水印原始播放流'] = [metadata.video_url];
+  }
+  if (downloadInfo.watermark_ending_url) {
+    videoUrls['片尾水印版'] = [downloadInfo.watermark_ending_url];
+  }
+  if (downloadInfo.url) {
+    videoUrls['Logo水印版'] = [downloadInfo.url];
+  }
+
+  return {
+    platform: 'jimeng',
+    videoId,
+    title: `即梦视频 ${videoId}`,
+    author: creation?.creator_info?.creator?.user_name || '',
+    cover: metadata.cover_url || '',
+    duration: 0,
+    videoUrls,
+  };
+}
+
 // Vercel serverless function 入口
 module.exports = async function handler(req, res) {
   // 允许跨域（以防从其他域访问）
@@ -115,10 +196,12 @@ module.exports = async function handler(req, res) {
     if (!url) return res.json({ success: false, error: '未识别到有效链接' });
 
     let result;
-    if (url.includes('douyin.com') || url.includes('iesdouyin.com')) {
+    if (url.includes('douyin.com') || url.includes('iesdouyin.com') || url.includes('v.douyin.com')) {
       result = await parseDouyin(url);
+    } else if (url.includes('jimeng.jianying.com') || url.includes('jianying.com')) {
+      result = await parseJimeng(url);
     } else {
-      return res.json({ success: false, error: '暂不支持该平台，目前支持：抖音' });
+      return res.json({ success: false, error: '暂不支持该平台，目前支持：抖音、即梦' });
     }
 
     res.json({ success: true, ...result });

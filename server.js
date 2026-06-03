@@ -205,12 +205,22 @@ async function parseJimeng(rawUrl) {
 
   const videoUrls = {};
 
-  // 尝试通过参数变换获取干净版本（CDN 按参数选文件，不校验签名）
-  if (downloadInfo.url) {
-    const cleanUrl = downloadInfo.url
-      .replace(/[?&]lr=[^&]+/g, '')          // 去掉 lr 参数
-      .replace(/cd=0%7C0%7C1%7C3/g, 'cd=0%7C0%7C0%7C3');  // cd 水印位改为 0
-    videoUrls['尝试去水印版（实验性）'] = [cleanUrl];
+  const collectionList = data.data?.page_info?.collection_info?.collection_list || [];
+  const cleanCandidates = collectionList
+    .map(item => item?.creation_info?.metadata)
+    .filter(item => item?.video_url)
+    .sort((a, b) => {
+      if (a.video_id === videoId) return -1;
+      if (b.video_id === videoId) return 1;
+      return 0;
+    })
+    .map(item => item.video_url)
+    .filter(url => !url.includes('lr=display_watermark') && url.includes('cd=0%7C0%7C0%7C3'));
+
+  if (cleanCandidates.length > 0) {
+    videoUrls['无水印原始播放流'] = [...new Set(cleanCandidates)];
+  } else if (metadata.video_url && !metadata.video_url.includes('lr=display_watermark')) {
+    videoUrls['无水印原始播放流'] = [metadata.video_url];
   }
 
   // watermark_ending_url：视频主体+片尾均带水印
