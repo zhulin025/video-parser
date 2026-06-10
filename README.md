@@ -8,11 +8,10 @@
 
 ## v0.6 更新
 
-- 多 CDN 链路测速：对多个无水印候选地址做小片段测速，返回并优先展示最快链接。
+- 文件大小探测：解析后读取各 CDN 链接的文件大小，并在网页端展示 MB/GB 信息。
 - 即梦候选评分：按无水印特征、清晰度、码率、域名和水印参数综合排序。
-- 推荐链接：API 返回 `recommendedUrl`，网页端显示“推荐最快链接”卡片。
 - 解析历史：网页端使用 `localStorage` 保存最近 12 条；iOS 端使用 `UserDefaults` 保存最近解析。
-- 移动端网页体验优化：结果卡片、按钮尺寸、最近解析和推荐下载更适合手机操作。
+- 移动端网页体验优化：结果卡片、按钮尺寸、最近解析和下载操作更适合手机操作。
 - API 保护：支持可选 Token 鉴权、解析限流、下载限流和最大输入长度限制。
 - 错误诊断：失败响应返回 `diagnostics.code/details`，前端展示诊断码。
 
@@ -22,7 +21,7 @@
 - 支持抖音分享链接解析。
 - 支持即梦分享链接解析。
 - 支持即梦无水印候选评分和最优链接排序。
-- 支持多 CDN 链路测速，并默认推荐最快的无水印链接。
+- 支持读取 CDN 文件大小，便于用户按文件体积选择下载链接。
 - 返回视频标题、作者、封面、尺寸、时长等元信息。
 - 按类型展示视频地址，例如无水印播放流、带水印参考地址。
 - 支持复制 CDN 链接。
@@ -93,7 +92,7 @@ Content-Type: application/json
   "success": true,
   "diagnostics": {
     "code": "OK",
-    "stages": ["parse", "rank", "speed-test"]
+    "stages": ["parse", "rank", "file-size"]
   },
   "platform": "jimeng",
   "videoId": "7645872201647885592",
@@ -112,16 +111,13 @@ Content-Type: application/json
       "https://v3-dreamnia.jimeng.com/..."
     ]
   },
-  "recommendedUrl": "https://v26-default.ixigua.com/...",
-  "cdnTests": [
+  "fileInfos": [
     {
       "url": "https://v26-default.ixigua.com/...",
       "ok": true,
       "host": "v26-default.ixigua.com",
-      "ttfbMs": 120,
-      "bytes": 262144,
-      "elapsedMs": 420,
-      "speedBps": 624152
+      "sizeBytes": 7460050,
+      "sizeText": "7.1 MB"
     }
   ],
   "urlDetails": [
@@ -162,7 +158,7 @@ Content-Type: application/json
 - `DOUYIN_PARSE_FAILED`：抖音解析阶段失败。
 - `JIMENG_PARSE_FAILED`：即梦解析阶段失败。
 - `NO_CLEAN_URL`：没有找到可判断为无水印的地址。
-- `CDN_SPEED_TEST_FAILED`：CDN 测速阶段失败。
+- `FILE_SIZE_LOOKUP_FAILED`：文件大小探测阶段失败。
 
 ### 代理下载
 
@@ -533,7 +529,7 @@ Vercel 会根据 `vercel.json` 使用 `server.js` 作为 Node 函数入口。
 ## 部署注意事项
 
 - CDN 视频地址有时效性，解析后应尽快下载。
-- 多 CDN 测速由服务端发起，因此测速结果反映的是服务端所在地区到 CDN 的速度。如果部署在 Vercel，测速可能偏海外；面向国内用户建议部署到国内或香港节点。
+- 文件大小通过服务端读取 CDN 响应头中的 `Content-Length` 或 `Content-Range` 得到。部分 CDN 如果不返回长度，页面会不显示大小。
 - 即梦的无水印地址不要靠字符串替换猜测，应优先从 `/mweb/v1/get_item_info` 的 `data.video.transcoded_video.origin.video_url` 获取。
 - `collection_info.collection_list[*].creation_info.metadata.video_url` 和 `creation_list[*].metadata.video_url` 只作为落地页兜底候选。
 - 即梦 CDN 域名可能变化，下载代理白名单需要按实际返回域名维护。
@@ -766,7 +762,7 @@ xcodebuild -project ios/VideoParser/VideoParser.xcodeproj \
 ### 桌面端
 
 - 粘贴分享文案后直接解析。
-- 展示推荐最快链接、测速结果和全部候选地址。
+- 展示全部候选地址和各链接文件大小。
 - 点击“下载”会走 `/api/download` 代理流式下载。
 - 点击 URL 文本或“复制”按钮可复制 CDN 地址。
 

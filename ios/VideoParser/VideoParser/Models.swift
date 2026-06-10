@@ -14,19 +14,16 @@ struct ParseResponse: Decodable {
     let width: Int?
     let height: Int?
     let videoUrls: [String: [String]]?
-    let recommendedUrl: String?
-    let cdnTests: [CDNTestResult]?
+    let fileInfos: [FileInfo]?
     let diagnostics: Diagnostics?
 }
 
-struct CDNTestResult: Decodable, Hashable {
+struct FileInfo: Decodable, Hashable {
     let url: String
     let ok: Bool?
     let host: String?
-    let ttfbMs: Int?
-    let bytes: Int?
-    let elapsedMs: Int?
-    let speedBps: Int?
+    let sizeBytes: Int?
+    let sizeText: String?
     let error: String?
 }
 
@@ -51,7 +48,7 @@ struct VideoHistoryItem: Identifiable, Codable, Hashable {
     let title: String
     let cover: String
     let savedAt: Date
-    let recommendedUrl: String
+    let primaryUrl: String
 }
 
 struct ParsedVideo: Identifiable {

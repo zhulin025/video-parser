@@ -7,8 +7,7 @@ const PC_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHT
 const RATE_LIMIT_WINDOW_MS = Number(process.env.RATE_LIMIT_WINDOW_MS || 60_000);
 const RATE_LIMIT_MAX = Number(process.env.RATE_LIMIT_MAX || 30);
 const MAX_INPUT_LENGTH = Number(process.env.MAX_INPUT_LENGTH || 3000);
-const SPEED_TEST_BYTES = 256 * 1024;
-const SPEED_TEST_TIMEOUT_MS = 6000;
+const FILE_SIZE_TIMEOUT_MS = 6000;
 const rateLimitStore = globalThis.__videoParserRateLimitStore || new Map();
 globalThis.__videoParserRateLimitStore = rateLimitStore;
 
@@ -187,25 +186,38 @@ function sortCandidates(candidates) {
   return [...byUrl.values()].sort((a, b) => b.score - a.score);
 }
 
-function speedTestUrl(url) {
+function parseTotalSize(headers) {
+  const contentRange = headers['content-range'];
+  if (contentRange) {
+    const match = String(contentRange).match(/\/(\d+)$/);
+    if (match) return Number(match[1]);
+  }
+  const contentLength = headers['content-length'];
+  return contentLength ? Number(contentLength) : 0;
+}
+
+function formatFileSize(bytes) {
+  if (!bytes) return '';
+  if (bytes >= 1024 * 1024 * 1024) return `${(bytes / 1024 / 1024 / 1024).toFixed(2)} GB`;
+  if (bytes >= 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+  if (bytes >= 1024) return `${Math.round(bytes / 1024)} KB`;
+  return `${bytes} B`;
+}
+
+function getUrlFileInfo(url) {
   return new Promise(resolve => {
-    const startedAt = Date.now();
-    let firstByteAt = 0;
-    let bytes = 0;
     let settled = false;
 
     function done(extra = {}) {
       if (settled) return;
       settled = true;
-      const elapsedMs = Math.max(1, Date.now() - startedAt);
+      const sizeBytes = Number(extra.sizeBytes || 0);
       resolve({
         url,
-        ok: !extra.error && bytes > 0,
+        ok: !extra.error && sizeBytes > 0,
         host: (() => { try { return new URL(url).host; } catch (_) { return ''; } })(),
-        ttfbMs: firstByteAt ? firstByteAt - startedAt : null,
-        bytes,
-        elapsedMs,
-        speedBps: bytes > 0 ? Math.round(bytes / (elapsedMs / 1000)) : 0,
+        sizeBytes,
+        sizeText: formatFileSize(sizeBytes),
         ...extra,
       });
     }
@@ -223,28 +235,22 @@ function speedTestUrl(url) {
       headers: {
         'User-Agent': getUserAgentForUrl(url),
         'Referer': getRefererForUrl(url),
-        'Range': `bytes=0-${SPEED_TEST_BYTES - 1}`,
+        'Range': 'bytes=0-0',
       },
-      timeout: SPEED_TEST_TIMEOUT_MS,
+      timeout: FILE_SIZE_TIMEOUT_MS,
     }, res => {
       if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
         res.resume();
-        done({ error: '测速遇到重定向' });
+        done({ error: '文件大小探测遇到重定向' });
         return;
       }
-      res.on('data', chunk => {
-        if (!firstByteAt) firstByteAt = Date.now();
-        bytes += chunk.length;
-        if (bytes >= SPEED_TEST_BYTES) {
-          req.destroy();
-          done();
-        }
-      });
-      res.on('end', () => done());
+      const sizeBytes = parseTotalSize(res.headers);
+      res.resume();
+      done({ sizeBytes });
     });
     req.on('timeout', () => {
       req.destroy();
-      done({ error: '测速超时' });
+      done({ error: '文件大小探测超时' });
     });
     req.on('error', err => {
       if (settled && err.code === 'ECONNRESET') return;
@@ -253,36 +259,15 @@ function speedTestUrl(url) {
   });
 }
 
-async function enrichWithCdnSpeed(result) {
-  const primaryEntries = Object.entries(result.videoUrls || {})
-    .filter(([name]) => name.includes('无水印'));
-  const candidateUrls = dedupe(primaryEntries.flatMap(([, urls]) => urls || [])).slice(0, 6);
+async function enrichWithFileSizes(result) {
+  const candidateUrls = dedupe(Object.values(result.videoUrls || {}).flatMap(urls => urls || [])).slice(0, 12);
   if (candidateUrls.length === 0) return result;
 
-  const speedTests = await Promise.all(candidateUrls.map(speedTestUrl));
-  const speedMap = new Map(speedTests.map(item => [item.url, item]));
-  const ranked = [...candidateUrls].sort((a, b) => {
-    const sa = speedMap.get(a);
-    const sb = speedMap.get(b);
-    if (!!sa?.ok !== !!sb?.ok) return sa?.ok ? -1 : 1;
-    if ((sa?.speedBps || 0) !== (sb?.speedBps || 0)) return (sb?.speedBps || 0) - (sa?.speedBps || 0);
-    return (sa?.ttfbMs || 999999) - (sb?.ttfbMs || 999999);
-  });
-
-  const videoUrls = { ...result.videoUrls };
-  for (const [name, urls] of primaryEntries) {
-    const urlSet = new Set(urls);
-    videoUrls[name] = ranked.filter(url => urlSet.has(url));
-  }
+  const fileInfos = await Promise.all(candidateUrls.map(getUrlFileInfo));
 
   return {
     ...result,
-    videoUrls,
-    recommendedUrl: ranked[0] || '',
-    cdnTests: speedTests.sort((a, b) => {
-      if (!!a.ok !== !!b.ok) return a.ok ? -1 : 1;
-      return (b.speedBps || 0) - (a.speedBps || 0);
-    }),
+    fileInfos,
   };
 }
 
@@ -523,9 +508,9 @@ module.exports = async function handler(req, res) {
       return res.json({ success: false, error: '暂不支持该平台，目前支持：抖音、即梦' });
     }
 
-    result = await withStage('CDN_SPEED_TEST_FAILED', () => enrichWithCdnSpeed(result));
+    result = await withStage('FILE_SIZE_LOOKUP_FAILED', () => enrichWithFileSizes(result));
 
-    res.json({ success: true, diagnostics: { code: 'OK', stages: ['parse', 'rank', 'speed-test'] }, ...result });
+    res.json({ success: true, diagnostics: { code: 'OK', stages: ['parse', 'rank', 'file-size'] }, ...result });
   } catch (err) {
     const status = err.code === 'UNAUTHORIZED' ? 401 : err.code === 'RATE_LIMITED' ? 429 : 200;
     res.status(status).json({

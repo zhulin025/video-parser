@@ -168,16 +168,16 @@ final class ParserViewModel: ObservableObject {
     }
 
     private func saveHistory(response: ParseResponse, parsed: ParsedVideo, input: String) {
-        let recommendedUrl = response.recommendedUrl ?? parsed.groups.first(where: { $0.isPrimary })?.urls.first ?? ""
-        guard !recommendedUrl.isEmpty else { return }
+        let primaryUrl = parsed.groups.first(where: { $0.isPrimary })?.urls.first ?? ""
+        guard !primaryUrl.isEmpty else { return }
         let item = VideoHistoryItem(
-            id: parsed.sourceId.isEmpty ? recommendedUrl : parsed.sourceId,
+            id: parsed.sourceId.isEmpty ? primaryUrl : parsed.sourceId,
             input: input,
             platform: parsed.platform,
             title: parsed.title,
             cover: parsed.cover?.absoluteString ?? "",
             savedAt: Date(),
-            recommendedUrl: recommendedUrl
+            primaryUrl: primaryUrl
         )
         history = [item] + history.filter { $0.id != item.id }
         history = Array(history.prefix(12))

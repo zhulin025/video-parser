@@ -221,34 +221,6 @@
       color: var(--text-muted); margin-bottom: 14px;
     }
 
-    .recommended-card {
-      display: none;
-      border: 1px solid rgba(52, 211, 153, 0.28);
-      background: rgba(52, 211, 153, 0.08);
-      border-radius: 14px;
-      padding: 14px;
-      margin-bottom: 18px;
-    }
-    .recommended-card.visible { display: block; }
-    .recommended-title {
-      color: var(--green);
-      font-size: 13px;
-      font-weight: 800;
-      margin-bottom: 6px;
-    }
-    .recommended-meta {
-      font-size: 12px;
-      color: var(--text-muted);
-      line-height: 1.5;
-      margin-bottom: 10px;
-    }
-    .recommended-actions { display: flex; gap: 8px; }
-    .recommended-actions button {
-      flex: 1;
-      min-height: 38px;
-      padding: 8px 12px;
-    }
-
     .url-group { margin-bottom: 20px; }
     .url-group-label {
       font-size: 12px; color: var(--accent); font-weight: 600;
@@ -263,10 +235,6 @@
       padding: 12px 14px;
       margin-bottom: 8px;
       display: flex; align-items: center; gap: 10px;
-    }
-    .url-item.recommended {
-      border-color: rgba(52, 211, 153, 0.42);
-      box-shadow: 0 0 0 1px rgba(52, 211, 153, 0.08) inset;
     }
     .url-text {
       flex: 1; font-size: 12px; color: var(--text-muted);
@@ -309,7 +277,7 @@
     }
     .btn-download svg { width: 11px; height: 11px; flex-shrink: 0; }
 
-    .speed-chip {
+    .size-chip {
       font-size: 11px;
       color: var(--green);
       background: rgba(52, 211, 153, 0.1);
@@ -407,10 +375,6 @@
         min-height: 42px;
         font-size: 13px;
       }
-      .recommended-actions {
-        display: grid;
-        grid-template-columns: 1fr 1fr;
-      }
       footer { margin-top: 30px; }
     }
   </style>
@@ -432,7 +396,7 @@
       <textarea id="urlInput" placeholder="例如：https://v.douyin.com/xxxxxxx/&#10;或直接粘贴抖音分享的完整文字也可以"></textarea>
       <div class="btn-row">
         <button class="btn-primary" id="parseBtn" onclick="parse()">解析</button>
-        <button class="btn-clear" onclick="clear()">清除</button>
+        <button class="btn-clear" onclick="clearInput()">清除</button>
       </div>
     </div>
 
@@ -467,7 +431,6 @@
 
       <div class="url-section">
         <div class="section-title">原始视频地址</div>
-        <div class="recommended-card" id="recommendedCard"></div>
         <div id="urlGroups"></div>
         <div class="hint">
           💡 <strong>play_addr 流媒体地址</strong>是平台内部播放地址，无水印。<br>
@@ -515,9 +478,20 @@
       }
     }
 
-    function clear() {
+    function clearInput() {
       document.getElementById('urlInput').value = '';
+      lastResult = null;
+      setLoading(false);
       hideAll();
+      document.getElementById('urlGroups').innerHTML = '';
+      document.getElementById('videoTitle').textContent = '';
+      document.getElementById('platformTag').textContent = '';
+      document.getElementById('authorTag').textContent = '';
+      document.getElementById('sizeTag').textContent = '';
+      document.getElementById('durationTag').textContent = '';
+      const thumb = document.getElementById('thumbImg');
+      thumb.removeAttribute('src');
+      thumb.style.display = '';
     }
 
     function setLoading(on) {
@@ -569,11 +543,13 @@
       author.textContent = data.author ? '@' + data.author : '';
 
       const sizeTag = document.getElementById('sizeTag');
+      sizeTag.textContent = '';
       if (data.width && data.height) {
         sizeTag.textContent = `${data.width}×${data.height}`;
       }
 
       const durTag = document.getElementById('durationTag');
+      durTag.textContent = '';
       if (data.duration) {
         const s = Math.round(data.duration / 1000);
         durTag.textContent = `${s}s`;
@@ -582,10 +558,9 @@
       // URL groups
       const container = document.getElementById('urlGroups');
       container.innerHTML = '';
-      renderRecommended(data);
 
       const videoUrls = data.videoUrls || {};
-      const speedMap = new Map((data.cdnTests || []).map(item => [item.url, item]));
+      const fileInfoMap = new Map((data.fileInfos || []).map(item => [item.url, item]));
       let anyUrl = false;
 
       const videoTitle = data.title || 'douyin_video';
@@ -608,9 +583,6 @@
         urls.forEach((url) => {
           const item = document.createElement('div');
           item.className = 'url-item';
-          if (url === data.recommendedUrl) {
-            item.classList.add('recommended');
-          }
 
           const text = document.createElement('div');
           text.className = 'url-text';
@@ -626,11 +598,11 @@
           copyBtn.textContent = '复制';
           copyBtn.onclick = () => copyUrl(url, copyBtn);
 
-          const speed = speedMap.get(url);
-          if (speed?.ok) {
+          const fileInfo = fileInfoMap.get(url);
+          if (fileInfo?.sizeText) {
             const chip = document.createElement('span');
-            chip.className = 'speed-chip';
-            chip.textContent = formatSpeed(speed.speedBps);
+            chip.className = 'size-chip';
+            chip.textContent = fileInfo.sizeText;
             actions.appendChild(chip);
           }
 
@@ -666,38 +638,6 @@
       document.getElementById('resultCard').classList.add('visible');
     }
 
-    function renderRecommended(data) {
-      const card = document.getElementById('recommendedCard');
-      const url = data.recommendedUrl;
-      if (!url) {
-        card.classList.remove('visible');
-        card.innerHTML = '';
-        return;
-      }
-      const test = (data.cdnTests || []).find(item => item.url === url);
-      const title = data.title || 'video';
-      const meta = test?.ok
-        ? `${test.host || 'CDN'} · ${formatSpeed(test.speedBps)} · 首包 ${test.ttfbMs || '-'}ms`
-        : '已按候选评分推荐';
-      card.innerHTML = `
-        <div class="recommended-title">推荐最快链接</div>
-        <div class="recommended-meta">${escapeHtml(meta)}</div>
-        <div class="recommended-actions"></div>
-      `;
-      const actions = card.querySelector('.recommended-actions');
-      const copyBtn = document.createElement('button');
-      copyBtn.className = 'btn-copy';
-      copyBtn.textContent = '复制推荐';
-      copyBtn.onclick = () => copyUrl(url, copyBtn);
-      const downloadBtn = document.createElement('button');
-      downloadBtn.className = 'btn-download';
-      downloadBtn.innerHTML = downloadButtonHTML('下载推荐');
-      downloadBtn.onclick = () => downloadVideo(url, title, downloadBtn);
-      actions.appendChild(copyBtn);
-      actions.appendChild(downloadBtn);
-      card.classList.add('visible');
-    }
-
     async function copyUrl(url, btn) {
       try {
         await navigator.clipboard.writeText(url);
@@ -708,12 +648,6 @@
       } catch (_) {
         prompt('手动复制此链接：', url);
       }
-    }
-
-    function formatSpeed(speedBps) {
-      if (!speedBps) return '测速失败';
-      if (speedBps >= 1024 * 1024) return `${(speedBps / 1024 / 1024).toFixed(1)} MB/s`;
-      return `${Math.round(speedBps / 1024)} KB/s`;
     }
 
     function escapeHtml(value) {
@@ -739,16 +673,16 @@
     }
 
     function saveHistory(data, input) {
-      const recommendedUrl = data.recommendedUrl || firstPrimaryUrl(data.videoUrls || {});
-      if (!recommendedUrl) return;
+      const primaryUrl = firstPrimaryUrl(data.videoUrls || {});
+      if (!primaryUrl) return;
       const item = {
-        id: data.videoId || data.awemeId || recommendedUrl,
+        id: data.videoId || data.awemeId || primaryUrl,
         input,
         platform: data.platform,
         title: data.title || '未命名视频',
         cover: data.cover || '',
         savedAt: Date.now(),
-        recommendedUrl,
+        primaryUrl,
         result: data,
       };
       const next = [item, ...loadHistory().filter(old => old.id !== item.id)].slice(0, 12);
