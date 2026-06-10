@@ -482,3 +482,185 @@ curl -I -L \
 HTTP/2 200
 content-type: video/mp4
 ```
+
+## 手动抓取和验证方法
+
+实际排查即梦无水印链接时，主要使用的是本地命令行工具和 Node.js 临时脚本，不需要浏览器插件。
+
+### 用到的工具
+
+- `curl`：请求网页、接口、检查 CDN 是否可访问。
+- `node`：写临时脚本，跟踪跳转、请求 API、遍历 JSON 字段。
+- `rg`：搜索项目代码和下载下来的网页 JS。
+- `sed`：查看文件片段。
+- `lsof`：检查或关闭本地端口服务。
+
+### 手动复现流程
+
+1. 先从分享文案里提取短链。
+
+   例如：
+
+   ```text
+   https://jimeng.jianying.com/s/6ROkuEln2KQ/?t=210
+   ```
+
+2. 跟踪短链跳转，拿到最终落地页 URL。
+
+   最终 URL 里会包含关键参数：
+
+   ```text
+   id=7646971490071645464
+   ```
+
+   这个 `id` 就是作品 ID。
+
+3. 请求即梦分享页 API。
+
+   ```text
+   POST https://jimeng.jianying.com/luckycat/cn/jianying/campaign/v1/dreamina/share/landing_page?uid=0&aid=581595&app_name=dreamina&duanwai_huiliu_page=1
+   ```
+
+   这个接口会返回水印版地址、作者、封面、推荐作品、合集信息等。部分分享页也会在 `collection_info` 或 `creation_list` 中返回无水印候选，但不要只依赖它。
+
+4. 请求即梦 mweb 作品详情接口。
+
+   ```bash
+   curl -sS 'https://jimeng.jianying.com/mweb/v1/get_item_info?uid=0&aid=581595&app_name=dreamina&duanwai_huiliu_page=1' \
+     -H 'Content-Type: application/json' \
+     -H 'User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36' \
+     -H 'Referer: https://jimeng.jianying.com/' \
+     -H 'appid: 581595' \
+     -H 'sign-ver: 1' \
+     --data '{"published_item_id":"7646971490071645464","pack_item_opt":{"need_follow_info":true}}'
+   ```
+
+5. 从响应里读取高码率无水印字段。
+
+   优先读取：
+
+   ```text
+   data.video.transcoded_video.origin.video_url
+   ```
+
+   其次可以读取：
+
+   ```text
+   data.video.transcoded_video.1080p.video_url
+   data.video.transcoded_video.720p.video_url
+   data.video.transcoded_video.480p.video_url
+   data.video.transcoded_video.360p.video_url
+   data.video.origin_video.video_url
+   ```
+
+### 判断是否为无水印
+
+带水印 URL 通常会有：
+
+```text
+lr=display_watermark...
+cd=0%7C0%7C1%7C3
+```
+
+无水印详情接口返回的高码率源通常没有 `lr=display_watermark`。例如《老太乘碟赴三体》样例中，无水印原始流的对象路径是：
+
+```text
+tos-cn-v-148450/oYoAEl4o9SGrDgf6hgC4JATDLExQIhgKQ18hOs/
+```
+
+并且码率参数是：
+
+```text
+br=6272
+ds=12
+```
+
+其它网站拿到的链接可能是 `v26-default.ixigua.com`，本地请求可能返回 `v9-artist.vlabvod.com` 或 `v3-artist.vlabvod.com`。CDN 域名会动态调度，不应把域名当作唯一判断标准；更可靠的是看对象路径、码率和是否存在水印参数。
+
+### 检查视频 URL 是否可访问
+
+拿到视频 URL 后，用 `curl -I` 检查：
+
+```bash
+curl -I -L \
+  -H 'Referer: https://jimeng.jianying.com/' \
+  -H 'User-Agent: Mozilla/5.0' \
+  '<视频URL>'
+```
+
+正常情况下会返回：
+
+```text
+HTTP/2 200
+content-type: video/mp4
+```
+
+这说明链接是可播放的视频文件。
+
+## iOS App
+
+项目内包含一个独立的 SwiftUI iOS 客户端：
+
+```text
+ios/VideoParser/VideoParser.xcodeproj
+```
+
+### 功能
+
+- 白色底色、卡片式结果区、圆角控件，整体接近 Apple 原生视觉。
+- 支持粘贴完整分享文案或分享链接。
+- 调用现有后端 `POST /api/parse`。
+- 展示视频封面、平台、作者、尺寸、时长和分组后的 CDN 链接。
+- 支持复制、Safari 打开、系统分享链接。
+- 包含解析步骤进度动画、按钮反馈、结果卡片弹性转场、复制成功状态动画。
+- App 内可配置解析服务地址，默认是：
+
+  ```text
+  http://127.0.0.1:3399
+  ```
+
+### 本地运行
+
+先启动 Node 后端：
+
+```bash
+cd /Users/zhulin/Desktop/VibeCoding/video-parser
+npm start
+```
+
+然后打开 iOS 工程：
+
+```bash
+open ios/VideoParser/VideoParser.xcodeproj
+```
+
+在 Xcode 中选择 `VideoParser` scheme 和一个 iPhone Simulator，点击 Run。
+
+### 连接线上服务
+
+点击 App 右上角设置按钮，把解析服务地址改成你的线上域名，例如：
+
+```text
+https://your-domain.com
+```
+
+App 会请求：
+
+```text
+https://your-domain.com/api/parse
+```
+
+如果服务部署在 Vercel，解析请求仍然由 Vercel 服务器发起，CDN 调度可能偏海外。想拿到更适合国内下载的 CDN，建议后端部署到国内、香港或用户本机。
+
+### 编译验证
+
+已用下面命令验证模拟器 Debug 构建：
+
+```bash
+xcodebuild -project ios/VideoParser/VideoParser.xcodeproj \
+  -scheme VideoParser \
+  -configuration Debug \
+  -sdk iphonesimulator \
+  -destination 'generic/platform=iOS Simulator' \
+  build
+```
