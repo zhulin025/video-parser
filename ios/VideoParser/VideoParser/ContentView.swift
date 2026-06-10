@@ -30,6 +30,15 @@ struct ContentView: View {
                         )
                         .matchedGeometryEffect(id: "input", in: namespace)
 
+                        if !viewModel.history.isEmpty {
+                            HistoryView(
+                                items: viewModel.history,
+                                restoreAction: viewModel.restoreHistory,
+                                clearAction: viewModel.clearHistory
+                            )
+                            .transition(.move(edge: .top).combined(with: .opacity))
+                        }
+
                         if viewModel.isParsing {
                             LoadingIndicator(step: viewModel.loadingStep)
                                 .transition(.asymmetric(
@@ -376,6 +385,73 @@ struct LoadingIndicator: View {
                 sweep = true
             }
         }
+    }
+}
+
+struct HistoryView: View {
+    let items: [VideoHistoryItem]
+    let restoreAction: (VideoHistoryItem) -> Void
+    let clearAction: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Label("最近解析", systemImage: "clock.arrow.circlepath")
+                    .font(.system(size: 14, weight: .bold))
+                    .foregroundStyle(.black)
+                Spacer()
+                Button("清空", action: clearAction)
+                    .font(.system(size: 12, weight: .bold))
+                    .foregroundStyle(.secondary)
+                    .buttonStyle(.plain)
+            }
+
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 10) {
+                    ForEach(items) { item in
+                        Button {
+                            restoreAction(item)
+                        } label: {
+                            HStack(spacing: 10) {
+                                AsyncImage(url: URL(string: item.cover)) { phase in
+                                    switch phase {
+                                    case .success(let image):
+                                        image.resizable().scaledToFill()
+                                    default:
+                                        Color.black.opacity(0.06)
+                                    }
+                                }
+                                .frame(width: 44, height: 44)
+                                .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text(item.title)
+                                        .font(.system(size: 12, weight: .bold))
+                                        .foregroundStyle(.black)
+                                        .lineLimit(1)
+                                    Text(item.platform == "douyin" ? "抖音" : "即梦")
+                                        .font(.system(size: 11, weight: .semibold))
+                                        .foregroundStyle(.secondary)
+                                }
+                                .frame(width: 112, alignment: .leading)
+                            }
+                            .padding(10)
+                            .background(Color(red: 0.975, green: 0.977, blue: 0.982))
+                            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+            }
+        }
+        .padding(16)
+        .background(.white)
+        .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 22, style: .continuous)
+                .stroke(.black.opacity(0.06), lineWidth: 1)
+        }
+        .shadow(color: .black.opacity(0.05), radius: 18, x: 0, y: 10)
     }
 }
 

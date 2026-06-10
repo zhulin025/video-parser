@@ -1,6 +1,6 @@
 {
   "name": "video-parser",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "description": "抖音视频原始CDN链接解析工具",
   "type": "commonjs",
   "scripts": {

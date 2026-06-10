@@ -4,6 +4,68 @@ const http = require('http');
 
 const MOBILE_UA = 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.0 Mobile/15E148 Safari/604.1';
 const PC_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
+const RATE_LIMIT_WINDOW_MS = Number(process.env.RATE_LIMIT_WINDOW_MS || 60_000);
+const RATE_LIMIT_MAX = Number(process.env.RATE_LIMIT_MAX || 30);
+const MAX_INPUT_LENGTH = Number(process.env.MAX_INPUT_LENGTH || 3000);
+const SPEED_TEST_BYTES = 256 * 1024;
+const SPEED_TEST_TIMEOUT_MS = 6000;
+const rateLimitStore = globalThis.__videoParserRateLimitStore || new Map();
+globalThis.__videoParserRateLimitStore = rateLimitStore;
+
+class ApiError extends Error {
+  constructor(code, message, details = {}) {
+    super(message);
+    this.code = code;
+    this.details = details;
+  }
+}
+
+function getClientIp(req) {
+  const forwarded = req.headers['x-forwarded-for'];
+  if (typeof forwarded === 'string' && forwarded.trim()) {
+    return forwarded.split(',')[0].trim();
+  }
+  return req.socket?.remoteAddress || req.connection?.remoteAddress || 'unknown';
+}
+
+function checkAuth(req) {
+  const token = process.env.API_TOKEN || process.env.VIDEO_PARSER_API_TOKEN;
+  if (!token) return;
+  const header = req.headers.authorization || '';
+  const bearer = header.startsWith('Bearer ') ? header.slice(7) : '';
+  const queryToken = req.query?.token;
+  if (bearer !== token && queryToken !== token) {
+    throw new ApiError('UNAUTHORIZED', 'API 鉴权失败，请检查访问令牌');
+  }
+}
+
+function checkRateLimit(req) {
+  const ip = getClientIp(req);
+  const now = Date.now();
+  const bucket = rateLimitStore.get(ip) || { count: 0, resetAt: now + RATE_LIMIT_WINDOW_MS };
+  if (now > bucket.resetAt) {
+    bucket.count = 0;
+    bucket.resetAt = now + RATE_LIMIT_WINDOW_MS;
+  }
+  bucket.count += 1;
+  rateLimitStore.set(ip, bucket);
+  if (bucket.count > RATE_LIMIT_MAX) {
+    throw new ApiError('RATE_LIMITED', `请求过于频繁，请 ${Math.ceil((bucket.resetAt - now) / 1000)} 秒后再试`, {
+      limit: RATE_LIMIT_MAX,
+      windowMs: RATE_LIMIT_WINDOW_MS,
+      resetAt: bucket.resetAt,
+    });
+  }
+}
+
+function withStage(stage, fn) {
+  return Promise.resolve()
+    .then(fn)
+    .catch(err => {
+      if (err instanceof ApiError) throw err;
+      throw new ApiError(stage, err.message, { cause: err.code || err.name || 'ERROR' });
+    });
+}
 
 function followRedirects(url, maxRedirects = 8) {
   return new Promise((resolve, reject) => {
@@ -50,6 +112,180 @@ function extractUrl(text) {
   return m ? m[0] : null;
 }
 
+function getRefererForUrl(url) {
+  if (url.includes('jimeng.com') || url.includes('dreamnia') || url.includes('dreamina') || url.includes('ixigua.com') || url.includes('vlabvod.com')) {
+    return 'https://jimeng.jianying.com/';
+  }
+  return 'https://www.douyin.com/';
+}
+
+function getUserAgentForUrl(url) {
+  return url.includes('jimeng') || url.includes('dreamnia') || url.includes('dreamina') || url.includes('ixigua.com') || url.includes('vlabvod.com')
+    ? PC_UA
+    : MOBILE_UA;
+}
+
+function dedupe(values) {
+  return [...new Set(values.filter(Boolean))];
+}
+
+function inferUrlMeta(url, source = '', quality = '') {
+  let host = '';
+  let br = 0;
+  let bt = 0;
+  try {
+    const u = new URL(url);
+    host = u.host;
+    br = Number(u.searchParams.get('br') || 0);
+    bt = Number(u.searchParams.get('bt') || 0);
+  } catch (_) {}
+  return {
+    url,
+    host,
+    source,
+    quality,
+    bitrate: Math.max(br, bt),
+    hasWatermark: /playwm|watermark|display_watermark|lr=/.test(url),
+    isCleanHint: url.includes('cd=0%7C0%7C0%7C3') || (!url.includes('playwm') && !url.includes('display_watermark')),
+  };
+}
+
+function scoreVideoCandidate(candidate) {
+  const url = candidate.url || '';
+  const host = candidate.host || '';
+  let score = 0;
+  if (!candidate.hasWatermark) score += 1000;
+  if (candidate.isCleanHint) score += 220;
+  if (url.includes('cd=0%7C0%7C0%7C3')) score += 180;
+  if (host.includes('ixigua.com')) score += 80;
+  if (host.includes('vlabvod.com')) score += 60;
+  if (host.includes('dreamnia.jimeng.com')) score -= 120;
+  if (url.includes('display_watermark')) score -= 700;
+  if (url.includes('watermark')) score -= 350;
+  if (candidate.quality === 'origin') score += 160;
+  if (candidate.quality === '1080p') score += 120;
+  if (candidate.quality === '720p') score += 70;
+  if (candidate.quality === '480p') score += 30;
+  score += Math.min(candidate.bitrate || 0, 9000) / 20;
+  return Math.round(score);
+}
+
+function sortCandidates(candidates) {
+  const byUrl = new Map();
+  for (const candidate of candidates) {
+    if (!candidate?.url) continue;
+    const enriched = {
+      ...inferUrlMeta(candidate.url, candidate.source, candidate.quality),
+      ...candidate,
+    };
+    enriched.score = scoreVideoCandidate(enriched);
+    const current = byUrl.get(enriched.url);
+    if (!current || enriched.score > current.score) {
+      byUrl.set(enriched.url, enriched);
+    }
+  }
+  return [...byUrl.values()].sort((a, b) => b.score - a.score);
+}
+
+function speedTestUrl(url) {
+  return new Promise(resolve => {
+    const startedAt = Date.now();
+    let firstByteAt = 0;
+    let bytes = 0;
+    let settled = false;
+
+    function done(extra = {}) {
+      if (settled) return;
+      settled = true;
+      const elapsedMs = Math.max(1, Date.now() - startedAt);
+      resolve({
+        url,
+        ok: !extra.error && bytes > 0,
+        host: (() => { try { return new URL(url).host; } catch (_) { return ''; } })(),
+        ttfbMs: firstByteAt ? firstByteAt - startedAt : null,
+        bytes,
+        elapsedMs,
+        speedBps: bytes > 0 ? Math.round(bytes / (elapsedMs / 1000)) : 0,
+        ...extra,
+      });
+    }
+
+    let parsed;
+    try {
+      parsed = new URL(url);
+    } catch (err) {
+      done({ error: 'URL 无效' });
+      return;
+    }
+
+    const lib = parsed.protocol === 'https:' ? https : http;
+    const req = lib.get(url, {
+      headers: {
+        'User-Agent': getUserAgentForUrl(url),
+        'Referer': getRefererForUrl(url),
+        'Range': `bytes=0-${SPEED_TEST_BYTES - 1}`,
+      },
+      timeout: SPEED_TEST_TIMEOUT_MS,
+    }, res => {
+      if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
+        res.resume();
+        done({ error: '测速遇到重定向' });
+        return;
+      }
+      res.on('data', chunk => {
+        if (!firstByteAt) firstByteAt = Date.now();
+        bytes += chunk.length;
+        if (bytes >= SPEED_TEST_BYTES) {
+          req.destroy();
+          done();
+        }
+      });
+      res.on('end', () => done());
+    });
+    req.on('timeout', () => {
+      req.destroy();
+      done({ error: '测速超时' });
+    });
+    req.on('error', err => {
+      if (settled && err.code === 'ECONNRESET') return;
+      done({ error: err.message });
+    });
+  });
+}
+
+async function enrichWithCdnSpeed(result) {
+  const primaryEntries = Object.entries(result.videoUrls || {})
+    .filter(([name]) => name.includes('无水印'));
+  const candidateUrls = dedupe(primaryEntries.flatMap(([, urls]) => urls || [])).slice(0, 6);
+  if (candidateUrls.length === 0) return result;
+
+  const speedTests = await Promise.all(candidateUrls.map(speedTestUrl));
+  const speedMap = new Map(speedTests.map(item => [item.url, item]));
+  const ranked = [...candidateUrls].sort((a, b) => {
+    const sa = speedMap.get(a);
+    const sb = speedMap.get(b);
+    if (!!sa?.ok !== !!sb?.ok) return sa?.ok ? -1 : 1;
+    if ((sa?.speedBps || 0) !== (sb?.speedBps || 0)) return (sb?.speedBps || 0) - (sa?.speedBps || 0);
+    return (sa?.ttfbMs || 999999) - (sb?.ttfbMs || 999999);
+  });
+
+  const videoUrls = { ...result.videoUrls };
+  for (const [name, urls] of primaryEntries) {
+    const urlSet = new Set(urls);
+    videoUrls[name] = ranked.filter(url => urlSet.has(url));
+  }
+
+  return {
+    ...result,
+    videoUrls,
+    recommendedUrl: ranked[0] || '',
+    cdnTests: speedTests.sort((a, b) => {
+      if (!!a.ok !== !!b.ok) return a.ok ? -1 : 1;
+      return (b.speedBps || 0) - (a.speedBps || 0);
+    }),
+  };
+}
+
 async function parseDouyin(rawUrl) {
   const finalUrl = await followRedirects(rawUrl);
   const awemeId = extractDouyinId(finalUrl);
@@ -78,6 +314,9 @@ async function parseDouyin(rawUrl) {
   const video = item.video || {};
   const rawPlayUrls = video.play_addr?.url_list || [];
   const playUrls = rawPlayUrls.map(u => u.replace('/playwm/', '/play/'));
+  if (playUrls.length === 0) {
+    throw new ApiError('NO_CLEAN_URL', '未找到抖音无水印播放地址');
+  }
   const coverUrls = video.cover?.url_list || [];
   const dynamicCoverUrls = video.dynamic_cover?.url_list || [];
 
@@ -143,30 +382,24 @@ async function parseJimeng(rawUrl) {
 
   const downloadInfo = metadata.download_info || {};
   const itemInfo = await fetchJimengItemInfo(videoId, finalUrl);
-  const cleanUrls = collectJimengItemInfoVideoUrls(itemInfo);
+  const candidateDetails = [
+    ...collectJimengItemInfoVideoCandidates(itemInfo),
+    ...collectJimengLandingCandidates(pageInfo, videoId),
+    { url: metadata.video_url, source: 'landing_current', quality: 'landing' },
+    { url: downloadInfo.watermark_ending_url, source: 'watermark_ending', quality: 'watermark' },
+    { url: downloadInfo.url, source: 'download_info', quality: 'watermark' },
+  ];
+  const scoredCandidates = sortCandidates(candidateDetails);
+  const cleanUrls = scoredCandidates
+    .filter(item => !item.hasWatermark && item.isCleanHint)
+    .map(item => item.url);
 
   const videoUrls = {};
   if (cleanUrls.length > 0) {
     videoUrls['无水印原始播放流'] = cleanUrls;
   }
 
-  const collectionList = pageInfo?.collection_info?.collection_list || [];
-  const landingCandidates = [
-    ...collectionList.map(item => item?.creation_info?.metadata),
-    ...(pageInfo?.creation_list || []).map(item => item?.metadata),
-  ]
-    .filter(item => item?.video_url)
-    .sort((a, b) => {
-      if (a.video_id === videoId) return -1;
-      if (b.video_id === videoId) return 1;
-      return 0;
-    })
-    .map(item => item.video_url)
-    .filter(url => !url.includes('lr=display_watermark') && url.includes('cd=0%7C0%7C0%7C3'));
-
-  if (!videoUrls['无水印原始播放流'] && landingCandidates.length > 0) {
-    videoUrls['无水印原始播放流'] = [...new Set(landingCandidates)];
-  } else if (metadata.video_url && !metadata.video_url.includes('lr=display_watermark')) {
+  if (!videoUrls['无水印原始播放流'] && metadata.video_url && !metadata.video_url.includes('lr=display_watermark')) {
     videoUrls['无水印原始播放流'] = [metadata.video_url];
   }
   if (downloadInfo.watermark_ending_url) {
@@ -174,6 +407,19 @@ async function parseJimeng(rawUrl) {
   }
   if (downloadInfo.url) {
     videoUrls['Logo水印版'] = [downloadInfo.url];
+  }
+
+  if (!videoUrls['无水印原始播放流'] || videoUrls['无水印原始播放流'].length === 0) {
+    throw new ApiError('NO_CLEAN_URL', '未找到即梦无水印原始视频地址', {
+      candidateCount: scoredCandidates.length,
+      topCandidates: scoredCandidates.slice(0, 3).map(item => ({
+        host: item.host,
+        score: item.score,
+        source: item.source,
+        quality: item.quality,
+        hasWatermark: item.hasWatermark,
+      })),
+    });
   }
 
   return {
@@ -184,6 +430,7 @@ async function parseJimeng(rawUrl) {
     cover: metadata.cover_url || '',
     duration: 0,
     videoUrls,
+    urlDetails: scoredCandidates,
   };
 }
 
@@ -215,21 +462,33 @@ async function fetchJimengItemInfo(videoId, referer) {
   }
 }
 
-function collectJimengItemInfoVideoUrls(itemInfo) {
+function collectJimengItemInfoVideoCandidates(itemInfo) {
   const video = itemInfo?.video || {};
   const transcoded = video.transcoded_video || {};
-  const candidates = [
-    transcoded.origin?.video_url,
-    transcoded['1080p']?.video_url,
-    transcoded['720p']?.video_url,
-    transcoded['480p']?.video_url,
-    transcoded['360p']?.video_url,
-    video.origin_video?.video_url,
-  ];
+  return [
+    { url: transcoded.origin?.video_url, quality: 'origin', source: 'get_item_info.transcoded.origin' },
+    { url: transcoded['1080p']?.video_url, quality: '1080p', source: 'get_item_info.transcoded.1080p' },
+    { url: transcoded['720p']?.video_url, quality: '720p', source: 'get_item_info.transcoded.720p' },
+    { url: transcoded['480p']?.video_url, quality: '480p', source: 'get_item_info.transcoded.480p' },
+    { url: transcoded['360p']?.video_url, quality: '360p', source: 'get_item_info.transcoded.360p' },
+    { url: video.origin_video?.video_url, quality: 'origin', source: 'get_item_info.origin_video' },
+  ].filter(item => item.url);
+}
 
-  return [...new Set(candidates.filter(url => {
-    return url && !url.includes('lr=display_watermark');
-  }))];
+function collectJimengLandingCandidates(pageInfo, videoId) {
+  const collectionList = pageInfo?.collection_info?.collection_list || [];
+  const metadataItems = [
+    ...collectionList.map(item => item?.creation_info?.metadata),
+    ...(pageInfo?.creation_list || []).map(item => item?.metadata),
+  ];
+  return metadataItems
+    .filter(item => item?.video_url)
+    .sort((a, b) => {
+      if (a.video_id === videoId) return -1;
+      if (b.video_id === videoId) return 1;
+      return 0;
+    })
+    .map(item => ({ url: item.video_url, quality: 'landing', source: item.video_id === videoId ? 'landing.current' : 'landing.related' }));
 }
 
 // Vercel serverless function 入口
@@ -237,29 +496,45 @@ module.exports = async function handler(req, res) {
   // 允许跨域（以防从其他域访问）
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
 
   if (req.method === 'OPTIONS') return res.status(200).end();
   if (req.method !== 'POST') return res.status(405).json({ success: false, error: 'Method not allowed' });
 
   try {
+    checkAuth(req);
+    checkRateLimit(req);
+
     const rawInput = req.body?.url?.trim();
     if (!rawInput) return res.json({ success: false, error: '请输入链接' });
+    if (rawInput.length > MAX_INPUT_LENGTH) {
+      throw new ApiError('INPUT_TOO_LONG', `输入内容过长，请控制在 ${MAX_INPUT_LENGTH} 字以内`);
+    }
 
     const url = extractUrl(rawInput);
     if (!url) return res.json({ success: false, error: '未识别到有效链接' });
 
     let result;
     if (url.includes('douyin.com') || url.includes('iesdouyin.com') || url.includes('v.douyin.com')) {
-      result = await parseDouyin(url);
+      result = await withStage('DOUYIN_PARSE_FAILED', () => parseDouyin(url));
     } else if (url.includes('jimeng.jianying.com') || url.includes('jianying.com')) {
-      result = await parseJimeng(url);
+      result = await withStage('JIMENG_PARSE_FAILED', () => parseJimeng(url));
     } else {
       return res.json({ success: false, error: '暂不支持该平台，目前支持：抖音、即梦' });
     }
 
-    res.json({ success: true, ...result });
+    result = await withStage('CDN_SPEED_TEST_FAILED', () => enrichWithCdnSpeed(result));
+
+    res.json({ success: true, diagnostics: { code: 'OK', stages: ['parse', 'rank', 'speed-test'] }, ...result });
   } catch (err) {
-    res.json({ success: false, error: err.message });
+    const status = err.code === 'UNAUTHORIZED' ? 401 : err.code === 'RATE_LIMITED' ? 429 : 200;
+    res.status(status).json({
+      success: false,
+      error: err.message,
+      diagnostics: {
+        code: err.code || 'UNKNOWN_ERROR',
+        details: err.details || {},
+      },
+    });
   }
 };

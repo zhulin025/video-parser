@@ -299,32 +299,8 @@ function collectJimengItemInfoVideoUrls(itemInfo) {
 // ──────────────────────────────────────────────
 // API 入口
 // ──────────────────────────────────────────────
-app.post('/api/parse', async (req, res) => {
-  try {
-    const { url: rawInput } = req.body;
-    if (!rawInput || !rawInput.trim()) {
-      return res.json({ success: false, error: '请输入链接' });
-    }
-
-    const url = extractUrl(rawInput.trim());
-    if (!url) {
-      return res.json({ success: false, error: '未识别到有效链接，请粘贴完整的分享链接或文字' });
-    }
-
-    let result;
-    if (url.includes('douyin.com') || url.includes('iesdouyin.com') || url.includes('v.douyin.com')) {
-      result = await parseDouyin(url);
-    } else if (url.includes('jimeng.jianying.com') || url.includes('jianying.com')) {
-      result = await parseJimeng(url);
-    } else {
-      return res.json({ success: false, error: '暂不支持该平台，目前支持：抖音、即梦' });
-    }
-
-    res.json({ success: true, ...result });
-  } catch (err) {
-    res.json({ success: false, error: err.message });
-  }
-});
+const parseHandler = require('./api/parse');
+app.post('/api/parse', (req, res) => parseHandler(req, res));
 
 // 下载代理：流式转发视频（避免跨域问题）
 const downloadHandler = require('./api/download');

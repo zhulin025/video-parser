@@ -4,15 +4,32 @@
 
 > 仅用于解析和下载你自己创作或有权使用的内容。CDN 地址由平台接口返回，通常有时效性，本项目不存储视频文件。
 
+当前版本：`0.6.0`
+
+## v0.6 更新
+
+- 多 CDN 链路测速：对多个无水印候选地址做小片段测速，返回并优先展示最快链接。
+- 即梦候选评分：按无水印特征、清晰度、码率、域名和水印参数综合排序。
+- 推荐链接：API 返回 `recommendedUrl`，网页端显示“推荐最快链接”卡片。
+- 解析历史：网页端使用 `localStorage` 保存最近 12 条；iOS 端使用 `UserDefaults` 保存最近解析。
+- 移动端网页体验优化：结果卡片、按钮尺寸、最近解析和推荐下载更适合手机操作。
+- API 保护：支持可选 Token 鉴权、解析限流、下载限流和最大输入长度限制。
+- 错误诊断：失败响应返回 `diagnostics.code/details`，前端展示诊断码。
+
 ## 功能
 
 - 支持粘贴完整分享文字，自动提取第一个 `http/https` 链接。
 - 支持抖音分享链接解析。
 - 支持即梦分享链接解析。
+- 支持即梦无水印候选评分和最优链接排序。
+- 支持多 CDN 链路测速，并默认推荐最快的无水印链接。
 - 返回视频标题、作者、封面、尺寸、时长等元信息。
 - 按类型展示视频地址，例如无水印播放流、带水印参考地址。
 - 支持复制 CDN 链接。
-- 支持后端代理下载，避免部分 CDN 因跨域或 Referer 限制导致浏览器直接下载失败。
+- 支持后端代理下载和 Range 请求透传，避免部分 CDN 因跨域或 Referer 限制导致浏览器直接下载失败。
+- 网页端支持本地解析历史记录。
+- iOS App 支持本地解析历史记录、多任务下载和保存到相册。
+- 支持可选 API 鉴权和内存限流。
 
 ## 技术栈
 
@@ -21,6 +38,17 @@
 - Axios
 - 原生 HTML/CSS/JavaScript 前端
 - Vercel 部署配置
+
+## 环境变量
+
+| 变量 | 默认值 | 说明 |
+| --- | --- | --- |
+| `API_TOKEN` | 空 | 设置后，解析和下载接口需要 `Authorization: Bearer <token>` 或 `?token=<token>`。 |
+| `VIDEO_PARSER_API_TOKEN` | 空 | `API_TOKEN` 的备用名称。 |
+| `RATE_LIMIT_WINDOW_MS` | `60000` | 限流窗口，单位毫秒。 |
+| `RATE_LIMIT_MAX` | `30` | 每个 IP 每个窗口内的解析请求上限。 |
+| `DOWNLOAD_RATE_LIMIT_MAX` | `60` | 每个 IP 每个窗口内的下载请求上限。 |
+| `MAX_INPUT_LENGTH` | `3000` | 解析接口最大输入长度。 |
 
 ## 本地运行
 
@@ -63,6 +91,10 @@ Content-Type: application/json
 ```json
 {
   "success": true,
+  "diagnostics": {
+    "code": "OK",
+    "stages": ["parse", "rank", "speed-test"]
+  },
   "platform": "jimeng",
   "videoId": "7645872201647885592",
   "title": "即梦视频 7645872201647885592",
@@ -79,17 +111,75 @@ Content-Type: application/json
     "Logo水印版": [
       "https://v3-dreamnia.jimeng.com/..."
     ]
+  },
+  "recommendedUrl": "https://v26-default.ixigua.com/...",
+  "cdnTests": [
+    {
+      "url": "https://v26-default.ixigua.com/...",
+      "ok": true,
+      "host": "v26-default.ixigua.com",
+      "ttfbMs": 120,
+      "bytes": 262144,
+      "elapsedMs": 420,
+      "speedBps": 624152
+    }
+  ],
+  "urlDetails": [
+    {
+      "url": "https://v26-default.ixigua.com/...",
+      "host": "v26-default.ixigua.com",
+      "source": "get_item_info.transcoded.origin",
+      "quality": "origin",
+      "bitrate": 6272,
+      "hasWatermark": false,
+      "isCleanHint": true,
+      "score": 1700
+    }
+  ]
+}
+```
+
+失败响应示例：
+
+```json
+{
+  "success": false,
+  "error": "未找到即梦无水印原始视频地址",
+  "diagnostics": {
+    "code": "NO_CLEAN_URL",
+    "details": {
+      "candidateCount": 2
+    }
   }
 }
 ```
 
+常见诊断码：
+
+- `UNAUTHORIZED`：开启了 Token 鉴权，但请求未携带有效 Token。
+- `RATE_LIMITED`：请求过于频繁。
+- `INPUT_TOO_LONG`：输入内容超过最大长度。
+- `DOUYIN_PARSE_FAILED`：抖音解析阶段失败。
+- `JIMENG_PARSE_FAILED`：即梦解析阶段失败。
+- `NO_CLEAN_URL`：没有找到可判断为无水印的地址。
+- `CDN_SPEED_TEST_FAILED`：CDN 测速阶段失败。
+
 ### 代理下载
 
 ```http
-GET /api/download?url=<encoded_video_url>&title=<filename>
+GET /api/download?url=<encoded_video_url>&title=<filename>&disposition=attachment
 ```
 
 后端会校验视频 URL 域名白名单，并带上合适的 `User-Agent` 和 `Referer` 请求 CDN，然后把视频流转发给浏览器。
+
+参数：
+
+- `url`：必填，已编码的视频 CDN 地址。
+- `title`：可选，下载文件名。
+- `disposition`：可选，`attachment` 或 `inline`。iOS 网页端使用 `inline` 打开视频预览，方便用户通过系统分享保存到照片。
+- `token`：可选，开启 `API_TOKEN` 后可用 query token 鉴权。
+
+下载代理会透传 `Range`、`Content-Range`、`Accept-Ranges`，提升 iOS Safari 视频预览和断点请求兼容性。
 
 ## 抖音解析原理
 
@@ -443,11 +533,13 @@ Vercel 会根据 `vercel.json` 使用 `server.js` 作为 Node 函数入口。
 ## 部署注意事项
 
 - CDN 视频地址有时效性，解析后应尽快下载。
+- 多 CDN 测速由服务端发起，因此测速结果反映的是服务端所在地区到 CDN 的速度。如果部署在 Vercel，测速可能偏海外；面向国内用户建议部署到国内或香港节点。
 - 即梦的无水印地址不要靠字符串替换猜测，应优先从 `/mweb/v1/get_item_info` 的 `data.video.transcoded_video.origin.video_url` 获取。
 - `collection_info.collection_list[*].creation_info.metadata.video_url` 和 `creation_list[*].metadata.video_url` 只作为落地页兜底候选。
 - 即梦 CDN 域名可能变化，下载代理白名单需要按实际返回域名维护。
 - 部分 CDN 需要正确的 `Referer` 和桌面端 `User-Agent`，否则可能返回空白、403 或无法下载。
 - 如果平台接口结构变化，优先打印并检查完整响应中的 `video.transcoded_video`、`metadata`、`download_info`、`collection_info`、`creation_list`。
+- 公开部署建议设置 `API_TOKEN`，并根据访问量调整 `RATE_LIMIT_MAX` 和 `DOWNLOAD_RATE_LIMIT_MAX`。
 
 ## 调试命令
 
@@ -612,6 +704,8 @@ ios/VideoParser/VideoParser.xcodeproj
 - 调用现有后端 `POST /api/parse`。
 - 展示视频封面、平台、作者、尺寸、时长和分组后的 CDN 链接。
 - 支持复制、Safari 打开、系统分享链接。
+- 支持最近解析历史记录，便于重新解析和下载。
+- 支持多任务下载、逐条取消、进度显示和保存到系统相册。
 - 包含解析步骤进度动画、按钮反馈、结果卡片弹性转场、复制成功状态动画。
 - App 内可配置解析服务地址，默认是：
 
@@ -664,3 +758,30 @@ xcodebuild -project ios/VideoParser/VideoParser.xcodeproj \
   -destination 'generic/platform=iOS Simulator' \
   build
 ```
+
+## 网页端体验
+
+网页端使用原生 HTML/CSS/JavaScript，无需前端构建步骤。
+
+### 桌面端
+
+- 粘贴分享文案后直接解析。
+- 展示推荐最快链接、测速结果和全部候选地址。
+- 点击“下载”会走 `/api/download` 代理流式下载。
+- 点击 URL 文本或“复制”按钮可复制 CDN 地址。
+
+### 移动端
+
+- 输入卡片在顶部吸附，解析后结果区按钮更大，适合单手操作。
+- 最近解析会保存在浏览器 `localStorage` 中，最多保留 12 条。
+- iPhone/iPad 浏览器不能让网页直接写入系统“照片”App；网页端会用 `inline` 方式打开视频预览，并提示用户通过系统分享按钮选择“存储视频/保存视频”。
+
+### localStorage 数据
+
+历史记录 key：
+
+```text
+video-parser-history-v1
+```
+
+保存内容包括标题、平台、封面、解析时间、推荐链接和完整解析结果。清空历史只会删除浏览器本地记录，不影响服务端。

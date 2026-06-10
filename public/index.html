@@ -58,6 +58,69 @@
       margin-bottom: 24px;
     }
 
+    .history-card {
+      display: none;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 18px;
+      margin-bottom: 24px;
+    }
+    .history-card.visible { display: block; }
+    .history-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 12px;
+    }
+    .history-title {
+      font-size: 13px;
+      font-weight: 700;
+      color: var(--text);
+    }
+    .history-clear {
+      background: transparent;
+      border: 1px solid var(--border);
+      color: var(--text-muted);
+      padding: 6px 10px;
+      border-radius: 8px;
+      font-size: 11px;
+    }
+    .history-list { display: grid; gap: 8px; }
+    .history-item {
+      width: 100%;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      color: var(--text);
+      padding: 10px;
+      border-radius: 10px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      text-align: left;
+    }
+    .history-item img {
+      width: 42px;
+      height: 42px;
+      border-radius: 8px;
+      object-fit: cover;
+      background: var(--surface);
+      flex-shrink: 0;
+    }
+    .history-item-title {
+      font-size: 12px;
+      font-weight: 700;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .history-item-meta {
+      margin-top: 3px;
+      font-size: 11px;
+      color: var(--text-muted);
+    }
+
     label { display: block; font-size: 13px; color: var(--text-muted); margin-bottom: 8px; }
 
     textarea {
@@ -158,6 +221,34 @@
       color: var(--text-muted); margin-bottom: 14px;
     }
 
+    .recommended-card {
+      display: none;
+      border: 1px solid rgba(52, 211, 153, 0.28);
+      background: rgba(52, 211, 153, 0.08);
+      border-radius: 14px;
+      padding: 14px;
+      margin-bottom: 18px;
+    }
+    .recommended-card.visible { display: block; }
+    .recommended-title {
+      color: var(--green);
+      font-size: 13px;
+      font-weight: 800;
+      margin-bottom: 6px;
+    }
+    .recommended-meta {
+      font-size: 12px;
+      color: var(--text-muted);
+      line-height: 1.5;
+      margin-bottom: 10px;
+    }
+    .recommended-actions { display: flex; gap: 8px; }
+    .recommended-actions button {
+      flex: 1;
+      min-height: 38px;
+      padding: 8px 12px;
+    }
+
     .url-group { margin-bottom: 20px; }
     .url-group-label {
       font-size: 12px; color: var(--accent); font-weight: 600;
@@ -172,6 +263,10 @@
       padding: 12px 14px;
       margin-bottom: 8px;
       display: flex; align-items: center; gap: 10px;
+    }
+    .url-item.recommended {
+      border-color: rgba(52, 211, 153, 0.42);
+      box-shadow: 0 0 0 1px rgba(52, 211, 153, 0.08) inset;
     }
     .url-text {
       flex: 1; font-size: 12px; color: var(--text-muted);
@@ -214,6 +309,75 @@
     }
     .btn-download svg { width: 11px; height: 11px; flex-shrink: 0; }
 
+    .speed-chip {
+      font-size: 11px;
+      color: var(--green);
+      background: rgba(52, 211, 153, 0.1);
+      border: 1px solid rgba(52, 211, 153, 0.22);
+      padding: 4px 7px;
+      border-radius: 999px;
+      white-space: nowrap;
+    }
+
+    .diagnostics {
+      margin-top: 10px;
+      color: var(--text-muted);
+      font-size: 12px;
+      line-height: 1.6;
+    }
+
+    .save-toast {
+      position: fixed;
+      left: 16px;
+      right: 16px;
+      bottom: 18px;
+      z-index: 20;
+      max-width: 520px;
+      margin: 0 auto;
+      background: rgba(26, 26, 36, 0.96);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 14px 16px;
+      box-shadow: 0 18px 48px rgba(0, 0, 0, 0.35);
+      display: none;
+      gap: 12px;
+      align-items: flex-start;
+    }
+    .save-toast.visible { display: flex; }
+    .save-toast-icon {
+      width: 28px;
+      height: 28px;
+      border-radius: 50%;
+      background: rgba(96, 165, 250, 0.16);
+      color: #60a5fa;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+      font-size: 15px;
+      font-weight: 700;
+    }
+    .save-toast-title {
+      font-size: 13px;
+      font-weight: 700;
+      color: var(--text);
+      margin-bottom: 4px;
+    }
+    .save-toast-text {
+      font-size: 12px;
+      color: var(--text-muted);
+      line-height: 1.5;
+    }
+    .save-toast-close {
+      margin-left: auto;
+      background: transparent;
+      border: 0;
+      color: var(--text-muted);
+      padding: 0 0 0 8px;
+      font-size: 18px;
+      line-height: 1;
+    }
+
     .hint {
       font-size: 12px; color: var(--text-muted);
       background: rgba(124, 106, 247, 0.06);
@@ -225,6 +389,84 @@
     footer {
       margin-top: 56px; text-align: center;
       font-size: 12px; color: var(--text-muted); line-height: 2;
+    }
+
+    @media (max-width: 640px) {
+      body {
+        padding: 18px 12px 96px;
+        align-items: stretch;
+      }
+      .container { max-width: none; }
+      header {
+        text-align: left;
+        margin-bottom: 22px;
+      }
+      header h1 { font-size: 25px; }
+      .badge-row { justify-content: flex-start; }
+      .input-card {
+        position: sticky;
+        top: 10px;
+        z-index: 10;
+        padding: 16px;
+        border-radius: 18px;
+        box-shadow: 0 16px 36px rgba(0, 0, 0, 0.26);
+      }
+      textarea {
+        height: 116px;
+        font-size: 16px;
+      }
+      .btn-row button {
+        min-height: 48px;
+        font-size: 15px;
+      }
+      .result-card,
+      .history-card {
+        border-radius: 18px;
+      }
+      .result-header {
+        padding: 16px;
+        align-items: flex-start;
+      }
+      .thumb {
+        width: 64px;
+        height: 64px;
+      }
+      .meta-title {
+        white-space: normal;
+        display: -webkit-box;
+        -webkit-line-clamp: 2;
+        -webkit-box-orient: vertical;
+      }
+      .url-section { padding: 16px; }
+      .url-item {
+        display: block;
+        padding: 14px;
+        border-radius: 14px;
+      }
+      .url-text {
+        white-space: normal;
+        display: -webkit-box;
+        -webkit-line-clamp: 2;
+        -webkit-box-orient: vertical;
+        margin-bottom: 12px;
+      }
+      .url-actions {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 8px;
+      }
+      .url-actions button {
+        min-height: 42px;
+        font-size: 13px;
+      }
+      .recommended-actions {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+      }
+      .save-toast {
+        bottom: 14px;
+      }
+      footer { margin-top: 30px; }
     }
   </style>
 </head>
@@ -247,6 +489,14 @@
         <button class="btn-primary" id="parseBtn" onclick="parse()">解析</button>
         <button class="btn-clear" onclick="clear()">清除</button>
       </div>
+    </div>
+
+    <div class="history-card" id="historyCard">
+      <div class="history-head">
+        <div class="history-title">最近解析</div>
+        <button class="history-clear" onclick="clearHistory()">清空</button>
+      </div>
+      <div class="history-list" id="historyList"></div>
     </div>
 
     <div class="loading" id="loading">
@@ -272,6 +522,7 @@
 
       <div class="url-section">
         <div class="section-title">原始视频地址</div>
+        <div class="recommended-card" id="recommendedCard"></div>
         <div id="urlGroups"></div>
         <div class="hint">
           💡 <strong>play_addr 流媒体地址</strong>是平台内部播放地址，无水印。<br>
@@ -287,7 +538,19 @@
     </footer>
   </div>
 
+  <div class="save-toast" id="saveToast">
+    <div class="save-toast-icon">i</div>
+    <div>
+      <div class="save-toast-title">iPhone 保存到照片</div>
+      <div class="save-toast-text">视频已在新页面打开。请在播放页点系统分享按钮，然后选择“存储视频/保存视频”，即可进入照片 App。</div>
+    </div>
+    <button class="save-toast-close" onclick="hideSaveToast()">×</button>
+  </div>
+
   <script>
+    const HISTORY_KEY = 'video-parser-history-v1';
+    let lastResult = null;
+
     async function parse() {
       const input = document.getElementById('urlInput').value.trim();
       if (!input) return;
@@ -304,12 +567,13 @@
         const data = await res.json();
 
         if (!data.success) {
-          showError(data.error);
+          showError(data);
         } else {
           showResult(data);
+          saveHistory(data, input);
         }
       } catch (e) {
-        showError('网络请求失败: ' + e.message);
+        showError({ error: '网络请求失败: ' + e.message, diagnostics: { code: 'NETWORK_ERROR' } });
       } finally {
         setLoading(false);
       }
@@ -339,15 +603,22 @@
       document.getElementById('resultCard').classList.remove('visible');
     }
 
-    function showError(msg) {
+    function showError(payload) {
       const el = document.getElementById('errorBox');
-      el.textContent = '解析失败：' + msg;
+      const msg = typeof payload === 'string' ? payload : payload.error;
+      const diagnostics = typeof payload === 'object' ? payload.diagnostics : null;
+      el.innerHTML = `解析失败：${escapeHtml(msg || '未知错误')}`;
+      if (diagnostics?.code) {
+        el.innerHTML += `<div class="diagnostics">诊断码：${escapeHtml(diagnostics.code)}</div>`;
+      }
       el.classList.add('visible');
     }
 
     function showResult(data) {
+      lastResult = data;
       // 封面
       const thumb = document.getElementById('thumbImg');
+      thumb.style.display = '';
       if (data.cover) {
         thumb.src = data.cover;
         thumb.onerror = () => { thumb.style.display = 'none'; };
@@ -375,8 +646,10 @@
       // URL groups
       const container = document.getElementById('urlGroups');
       container.innerHTML = '';
+      renderRecommended(data);
 
       const videoUrls = data.videoUrls || {};
+      const speedMap = new Map((data.cdnTests || []).map(item => [item.url, item]));
       let anyUrl = false;
 
       const videoTitle = data.title || 'douyin_video';
@@ -399,6 +672,9 @@
         urls.forEach((url) => {
           const item = document.createElement('div');
           item.className = 'url-item';
+          if (url === data.recommendedUrl) {
+            item.classList.add('recommended');
+          }
 
           const text = document.createElement('div');
           text.className = 'url-text';
@@ -414,11 +690,19 @@
           copyBtn.textContent = '复制';
           copyBtn.onclick = () => copyUrl(url, copyBtn);
 
-          // 无水印组显示下载按钮
+          const speed = speedMap.get(url);
+          if (speed?.ok) {
+            const chip = document.createElement('span');
+            chip.className = 'speed-chip';
+            chip.textContent = formatSpeed(speed.speedBps);
+            actions.appendChild(chip);
+          }
+
+          // 无水印组显示下载/保存按钮
           if (isNoWatermark) {
             const dlBtn = document.createElement('button');
             dlBtn.className = 'btn-download';
-            dlBtn.innerHTML = `<svg viewBox="0 0 16 16" fill="currentColor"><path d="M8 12l-4-4h2.5V4h3v4H12L8 12z"/><rect x="3" y="13" width="10" height="1.5" rx="0.75"/></svg>下载`;
+            dlBtn.innerHTML = downloadButtonHTML(isIOSLike() ? '存照片' : '下载');
             dlBtn.onclick = () => downloadVideo(url, videoTitle, dlBtn);
             actions.appendChild(copyBtn);
             actions.appendChild(dlBtn);
@@ -446,6 +730,38 @@
       document.getElementById('resultCard').classList.add('visible');
     }
 
+    function renderRecommended(data) {
+      const card = document.getElementById('recommendedCard');
+      const url = data.recommendedUrl;
+      if (!url) {
+        card.classList.remove('visible');
+        card.innerHTML = '';
+        return;
+      }
+      const test = (data.cdnTests || []).find(item => item.url === url);
+      const title = data.title || 'video';
+      const meta = test?.ok
+        ? `${test.host || 'CDN'} · ${formatSpeed(test.speedBps)} · 首包 ${test.ttfbMs || '-'}ms`
+        : '已按候选评分推荐';
+      card.innerHTML = `
+        <div class="recommended-title">推荐最快链接</div>
+        <div class="recommended-meta">${escapeHtml(meta)}</div>
+        <div class="recommended-actions"></div>
+      `;
+      const actions = card.querySelector('.recommended-actions');
+      const copyBtn = document.createElement('button');
+      copyBtn.className = 'btn-copy';
+      copyBtn.textContent = '复制推荐';
+      copyBtn.onclick = () => copyUrl(url, copyBtn);
+      const downloadBtn = document.createElement('button');
+      downloadBtn.className = 'btn-download';
+      downloadBtn.innerHTML = downloadButtonHTML(isIOSLike() ? '存照片' : '下载推荐');
+      downloadBtn.onclick = () => downloadVideo(url, title, downloadBtn);
+      actions.appendChild(copyBtn);
+      actions.appendChild(downloadBtn);
+      card.classList.add('visible');
+    }
+
     async function copyUrl(url, btn) {
       try {
         await navigator.clipboard.writeText(url);
@@ -458,11 +774,129 @@
       }
     }
 
+    function isIOSLike() {
+      return /iPad|iPhone|iPod/.test(navigator.userAgent)
+        || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+    }
+
+    function formatSpeed(speedBps) {
+      if (!speedBps) return '测速失败';
+      if (speedBps >= 1024 * 1024) return `${(speedBps / 1024 / 1024).toFixed(1)} MB/s`;
+      return `${Math.round(speedBps / 1024)} KB/s`;
+    }
+
+    function escapeHtml(value) {
+      return String(value ?? '').replace(/[&<>"']/g, ch => ({
+        '&': '&amp;',
+        '<': '&lt;',
+        '>': '&gt;',
+        '"': '&quot;',
+        "'": '&#39;',
+      }[ch]));
+    }
+
+    function escapeAttr(value) {
+      return escapeHtml(value).replace(/`/g, '&#96;');
+    }
+
+    function loadHistory() {
+      try {
+        return JSON.parse(localStorage.getItem(HISTORY_KEY) || '[]');
+      } catch (_) {
+        return [];
+      }
+    }
+
+    function saveHistory(data, input) {
+      const recommendedUrl = data.recommendedUrl || firstPrimaryUrl(data.videoUrls || {});
+      if (!recommendedUrl) return;
+      const item = {
+        id: data.videoId || data.awemeId || recommendedUrl,
+        input,
+        platform: data.platform,
+        title: data.title || '未命名视频',
+        cover: data.cover || '',
+        savedAt: Date.now(),
+        recommendedUrl,
+        result: data,
+      };
+      const next = [item, ...loadHistory().filter(old => old.id !== item.id)].slice(0, 12);
+      localStorage.setItem(HISTORY_KEY, JSON.stringify(next));
+      renderHistory();
+    }
+
+    function firstPrimaryUrl(videoUrls) {
+      for (const [name, urls] of Object.entries(videoUrls)) {
+        if (name.includes('无水印') && urls?.[0]) return urls[0];
+      }
+      return '';
+    }
+
+    function renderHistory() {
+      const history = loadHistory();
+      const card = document.getElementById('historyCard');
+      const list = document.getElementById('historyList');
+      if (!history.length) {
+        card.classList.remove('visible');
+        list.innerHTML = '';
+        return;
+      }
+      list.innerHTML = history.map((item, index) => `
+        <button class="history-item" onclick="restoreHistory(${index})">
+          ${item.cover ? `<img src="${escapeAttr(item.cover)}" alt="">` : '<img alt="">'}
+          <div style="min-width:0;flex:1">
+            <div class="history-item-title">${escapeHtml(item.title)}</div>
+            <div class="history-item-meta">${item.platform === 'douyin' ? '抖音' : '即梦'} · ${new Date(item.savedAt).toLocaleString()}</div>
+          </div>
+        </button>
+      `).join('');
+      card.classList.add('visible');
+    }
+
+    function restoreHistory(index) {
+      const item = loadHistory()[index];
+      if (!item?.result) return;
+      document.getElementById('urlInput').value = item.input || '';
+      hideAll();
+      showResult(item.result);
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+
+    function clearHistory() {
+      localStorage.removeItem(HISTORY_KEY);
+      renderHistory();
+    }
+
+    function downloadButtonHTML(text) {
+      return `<svg viewBox="0 0 16 16" fill="currentColor"><path d="M8 12l-4-4h2.5V4h3v4H12L8 12z"/><rect x="3" y="13" width="10" height="1.5" rx="0.75"/></svg>${text}`;
+    }
+
+    function hideSaveToast() {
+      document.getElementById('saveToast').classList.remove('visible');
+    }
+
+    function showSaveToast() {
+      const toast = document.getElementById('saveToast');
+      toast.classList.add('visible');
+      clearTimeout(window._saveToastTimer);
+      window._saveToastTimer = setTimeout(hideSaveToast, 9000);
+    }
+
     function downloadVideo(url, title, btn) {
       if (btn.classList.contains('downloading')) return;
 
-      // 通过后端代理下载，避免跨域问题
-      const proxyUrl = `/api/download?url=${encodeURIComponent(url)}&title=${encodeURIComponent(title)}`;
+      // iOS Safari/微信内置浏览器不能让网页直接写入“照片”App。
+      // 这里改用 inline 预览，让用户通过系统分享面板保存到照片。
+      const disposition = isIOSLike() ? 'inline' : 'attachment';
+      const proxyUrl = `/api/download?url=${encodeURIComponent(url)}&title=${encodeURIComponent(title)}&disposition=${disposition}`;
+
+      if (isIOSLike()) {
+        window.open(proxyUrl, '_blank');
+        showSaveToast();
+        return;
+      }
+
+      // 非 iOS 通过后端代理下载，避免跨域问题
       const a = document.createElement('a');
       a.href = proxyUrl;
       a.download = ''; // 文件名由后端 Content-Disposition 决定
@@ -472,15 +906,16 @@
 
       // 按钮状态反馈
       btn.classList.add('downloading');
-      btn.innerHTML = `<svg viewBox="0 0 16 16" fill="currentColor"><path d="M8 12l-4-4h2.5V4h3v4H12L8 12z"/><rect x="3" y="13" width="10" height="1.5" rx="0.75"/></svg>下载中…`;
+      btn.innerHTML = downloadButtonHTML('下载中…');
       setTimeout(() => {
         btn.classList.remove('downloading');
-        btn.innerHTML = `<svg viewBox="0 0 16 16" fill="currentColor"><path d="M8 12l-4-4h2.5V4h3v4H12L8 12z"/><rect x="3" y="13" width="10" height="1.5" rx="0.75"/></svg>下载`;
+        btn.innerHTML = downloadButtonHTML('下载');
       }, 4000);
     }
 
     // Enter 快捷键提交
     document.addEventListener('DOMContentLoaded', () => {
+      renderHistory();
       document.getElementById('urlInput').addEventListener('keydown', (e) => {
         if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) parse();
       });

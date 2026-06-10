@@ -19,13 +19,16 @@ final class ParserViewModel: ObservableObject {
     @Published var downloadedFileURL: URL?
     @Published var savedMessage: String?
     @Published var downloadStatuses: [String: DownloadStatus] = [:]
+    @Published var history: [VideoHistoryItem] = []
 
     private var loadingTask: Task<Void, Never>?
     private var downloadTasks: [String: Task<Void, Never>] = [:]
     private static let apiBaseKey = "apiBaseURL"
+    private static let historyKey = "parseHistory"
 
     init() {
         apiBaseURL = UserDefaults.standard.string(forKey: Self.apiBaseKey) ?? "http://127.0.0.1:3399"
+        history = Self.loadHistory()
     }
 
     var canParse: Bool {
@@ -55,10 +58,12 @@ final class ParserViewModel: ObservableObject {
         Task {
             do {
                 let response = try await ParserService.parse(input: input, apiBaseURL: apiBaseURL)
+                let parsed = ParsedVideo(response: response)
                 withAnimation(.spring(response: 0.55, dampingFraction: 0.86)) {
-                    result = ParsedVideo(response: response)
+                    result = parsed
                     isParsing = false
                 }
+                saveHistory(response: response, parsed: parsed, input: input)
             } catch {
                 withAnimation(.spring(response: 0.42, dampingFraction: 0.86)) {
                     errorMessage = error.localizedDescription
@@ -148,6 +153,45 @@ final class ParserViewModel: ObservableObject {
         downloadTasks[url]?.cancel()
         downloadTasks[url] = nil
         removeDownloadStatus(for: url)
+    }
+
+    func restoreHistory(_ item: VideoHistoryItem) {
+        input = item.input
+        result = nil
+        errorMessage = nil
+        parse()
+    }
+
+    func clearHistory() {
+        history = []
+        UserDefaults.standard.removeObject(forKey: Self.historyKey)
+    }
+
+    private func saveHistory(response: ParseResponse, parsed: ParsedVideo, input: String) {
+        let recommendedUrl = response.recommendedUrl ?? parsed.groups.first(where: { $0.isPrimary })?.urls.first ?? ""
+        guard !recommendedUrl.isEmpty else { return }
+        let item = VideoHistoryItem(
+            id: parsed.sourceId.isEmpty ? recommendedUrl : parsed.sourceId,
+            input: input,
+            platform: parsed.platform,
+            title: parsed.title,
+            cover: parsed.cover?.absoluteString ?? "",
+            savedAt: Date(),
+            recommendedUrl: recommendedUrl
+        )
+        history = [item] + history.filter { $0.id != item.id }
+        history = Array(history.prefix(12))
+        if let data = try? JSONEncoder().encode(history) {
+            UserDefaults.standard.set(data, forKey: Self.historyKey)
+        }
+    }
+
+    private static func loadHistory() -> [VideoHistoryItem] {
+        guard let data = UserDefaults.standard.data(forKey: historyKey),
+              let items = try? JSONDecoder().decode([VideoHistoryItem].self, from: data) else {
+            return []
+        }
+        return items
     }
 
     private func setDownloadStatus(_ status: DownloadStatus) {

@@ -14,6 +14,24 @@ struct ParseResponse: Decodable {
     let width: Int?
     let height: Int?
     let videoUrls: [String: [String]]?
+    let recommendedUrl: String?
+    let cdnTests: [CDNTestResult]?
+    let diagnostics: Diagnostics?
+}
+
+struct CDNTestResult: Decodable, Hashable {
+    let url: String
+    let ok: Bool?
+    let host: String?
+    let ttfbMs: Int?
+    let bytes: Int?
+    let elapsedMs: Int?
+    let speedBps: Int?
+    let error: String?
+}
+
+struct Diagnostics: Decodable, Hashable {
+    let code: String?
 }
 
 struct VideoURLGroup: Identifiable, Hashable {
@@ -24,6 +42,16 @@ struct VideoURLGroup: Identifiable, Hashable {
     var isPrimary: Bool {
         name.contains("无水印")
     }
+}
+
+struct VideoHistoryItem: Identifiable, Codable, Hashable {
+    let id: String
+    let input: String
+    let platform: String
+    let title: String
+    let cover: String
+    let savedAt: Date
+    let recommendedUrl: String
 }
 
 struct ParsedVideo: Identifiable {
