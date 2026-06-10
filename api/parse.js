@@ -462,18 +462,27 @@ function collectJimengItemInfoVideoCandidates(itemInfo) {
 
 function collectJimengLandingCandidates(pageInfo, videoId) {
   const collectionList = pageInfo?.collection_info?.collection_list || [];
+  const currentMetadata = pageInfo?.creation?.metadata;
   const metadataItems = [
+    currentMetadata,
     ...collectionList.map(item => item?.creation_info?.metadata),
     ...(pageInfo?.creation_list || []).map(item => item?.metadata),
   ];
   return metadataItems
-    .filter(item => item?.video_url)
-    .sort((a, b) => {
-      if (a.video_id === videoId) return -1;
-      if (b.video_id === videoId) return 1;
-      return 0;
-    })
-    .map(item => ({ url: item.video_url, quality: 'landing', source: item.video_id === videoId ? 'landing.current' : 'landing.related' }));
+    .filter(item => item?.video_url && isJimengCurrentVideoMetadata(item, videoId))
+    .map(item => ({ url: item.video_url, quality: 'landing', source: 'landing.current' }));
+}
+
+function isJimengCurrentVideoMetadata(metadata, videoId) {
+  if (!metadata || !videoId) return false;
+  const knownIds = [
+    metadata.video_id,
+    metadata.id,
+    metadata.item_id,
+    metadata.creation_id,
+    metadata.published_item_id,
+  ].filter(Boolean).map(String);
+  return knownIds.includes(String(videoId));
 }
 
 // Vercel serverless function 入口
