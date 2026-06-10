@@ -167,7 +167,7 @@ Content-Type: application/json
 ### 代理下载
 
 ```http
-GET /api/download?url=<encoded_video_url>&title=<filename>&disposition=attachment
+GET /api/download?url=<encoded_video_url>&title=<filename>
 ```
 
 后端会校验视频 URL 域名白名单，并带上合适的 `User-Agent` 和 `Referer` 请求 CDN，然后把视频流转发给浏览器。
@@ -176,7 +176,7 @@ GET /api/download?url=<encoded_video_url>&title=<filename>&disposition=attachmen
 
 - `url`：必填，已编码的视频 CDN 地址。
 - `title`：可选，下载文件名。
-- `disposition`：可选，`attachment` 或 `inline`。iOS 网页端使用 `inline` 打开视频预览，方便用户通过系统分享保存到照片。
+- `disposition`：可选，`attachment` 或 `inline`。网页端默认使用 `attachment` 直接下载，保留 `inline` 仅供手动调试视频预览。
 - `token`：可选，开启 `API_TOKEN` 后可用 query token 鉴权。
 
 下载代理会透传 `Range`、`Content-Range`、`Accept-Ranges`，提升 iOS Safari 视频预览和断点请求兼容性。
@@ -774,7 +774,7 @@ xcodebuild -project ios/VideoParser/VideoParser.xcodeproj \
 
 - 输入卡片在顶部吸附，解析后结果区按钮更大，适合单手操作。
 - 最近解析会保存在浏览器 `localStorage` 中，最多保留 12 条。
-- iPhone/iPad 浏览器不能让网页直接写入系统“照片”App；网页端会用 `inline` 方式打开视频预览，并提示用户通过系统分享按钮选择“存储视频/保存视频”。
+- 手机浏览器端点击“下载”会走 `/api/download` 代理下载。iOS Safari/微信内置浏览器通常会把文件保存到“文件/下载”，这是浏览器行为限制，不是项目后端控制的路径。
 
 ### localStorage 数据
 

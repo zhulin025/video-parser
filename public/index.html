@@ -326,58 +326,6 @@
       line-height: 1.6;
     }
 
-    .save-toast {
-      position: fixed;
-      left: 16px;
-      right: 16px;
-      bottom: 18px;
-      z-index: 20;
-      max-width: 520px;
-      margin: 0 auto;
-      background: rgba(26, 26, 36, 0.96);
-      border: 1px solid var(--border);
-      border-radius: 14px;
-      padding: 14px 16px;
-      box-shadow: 0 18px 48px rgba(0, 0, 0, 0.35);
-      display: none;
-      gap: 12px;
-      align-items: flex-start;
-    }
-    .save-toast.visible { display: flex; }
-    .save-toast-icon {
-      width: 28px;
-      height: 28px;
-      border-radius: 50%;
-      background: rgba(96, 165, 250, 0.16);
-      color: #60a5fa;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      flex-shrink: 0;
-      font-size: 15px;
-      font-weight: 700;
-    }
-    .save-toast-title {
-      font-size: 13px;
-      font-weight: 700;
-      color: var(--text);
-      margin-bottom: 4px;
-    }
-    .save-toast-text {
-      font-size: 12px;
-      color: var(--text-muted);
-      line-height: 1.5;
-    }
-    .save-toast-close {
-      margin-left: auto;
-      background: transparent;
-      border: 0;
-      color: var(--text-muted);
-      padding: 0 0 0 8px;
-      font-size: 18px;
-      line-height: 1;
-    }
-
     .hint {
       font-size: 12px; color: var(--text-muted);
       background: rgba(124, 106, 247, 0.06);
@@ -463,9 +411,6 @@
         display: grid;
         grid-template-columns: 1fr 1fr;
       }
-      .save-toast {
-        bottom: 14px;
-      }
       footer { margin-top: 30px; }
     }
   </style>
@@ -536,15 +481,6 @@
       本工具仅供解析你自己创作的视频，请勿用于下载他人内容<br>
       CDN 地址由平台 API 返回，本工具不存储任何数据
     </footer>
-  </div>
-
-  <div class="save-toast" id="saveToast">
-    <div class="save-toast-icon">i</div>
-    <div>
-      <div class="save-toast-title">iPhone 保存到照片</div>
-      <div class="save-toast-text">视频已在新页面打开。请在播放页点系统分享按钮，然后选择“存储视频/保存视频”，即可进入照片 App。</div>
-    </div>
-    <button class="save-toast-close" onclick="hideSaveToast()">×</button>
   </div>
 
   <script>
@@ -702,7 +638,7 @@
           if (isNoWatermark) {
             const dlBtn = document.createElement('button');
             dlBtn.className = 'btn-download';
-            dlBtn.innerHTML = downloadButtonHTML(isIOSLike() ? '存照片' : '下载');
+            dlBtn.innerHTML = downloadButtonHTML('下载');
             dlBtn.onclick = () => downloadVideo(url, videoTitle, dlBtn);
             actions.appendChild(copyBtn);
             actions.appendChild(dlBtn);
@@ -755,7 +691,7 @@
       copyBtn.onclick = () => copyUrl(url, copyBtn);
       const downloadBtn = document.createElement('button');
       downloadBtn.className = 'btn-download';
-      downloadBtn.innerHTML = downloadButtonHTML(isIOSLike() ? '存照片' : '下载推荐');
+      downloadBtn.innerHTML = downloadButtonHTML('下载推荐');
       downloadBtn.onclick = () => downloadVideo(url, title, downloadBtn);
       actions.appendChild(copyBtn);
       actions.appendChild(downloadBtn);
@@ -772,11 +708,6 @@
       } catch (_) {
         prompt('手动复制此链接：', url);
       }
-    }
-
-    function isIOSLike() {
-      return /iPad|iPhone|iPod/.test(navigator.userAgent)
-        || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
     }
 
     function formatSpeed(speedBps) {
@@ -871,32 +802,11 @@
       return `<svg viewBox="0 0 16 16" fill="currentColor"><path d="M8 12l-4-4h2.5V4h3v4H12L8 12z"/><rect x="3" y="13" width="10" height="1.5" rx="0.75"/></svg>${text}`;
     }
 
-    function hideSaveToast() {
-      document.getElementById('saveToast').classList.remove('visible');
-    }
-
-    function showSaveToast() {
-      const toast = document.getElementById('saveToast');
-      toast.classList.add('visible');
-      clearTimeout(window._saveToastTimer);
-      window._saveToastTimer = setTimeout(hideSaveToast, 9000);
-    }
-
     function downloadVideo(url, title, btn) {
       if (btn.classList.contains('downloading')) return;
 
-      // iOS Safari/微信内置浏览器不能让网页直接写入“照片”App。
-      // 这里改用 inline 预览，让用户通过系统分享面板保存到照片。
-      const disposition = isIOSLike() ? 'inline' : 'attachment';
-      const proxyUrl = `/api/download?url=${encodeURIComponent(url)}&title=${encodeURIComponent(title)}&disposition=${disposition}`;
-
-      if (isIOSLike()) {
-        window.open(proxyUrl, '_blank');
-        showSaveToast();
-        return;
-      }
-
-      // 非 iOS 通过后端代理下载，避免跨域问题
+      // 通过后端代理下载，避免跨域和 Referer 问题
+      const proxyUrl = `/api/download?url=${encodeURIComponent(url)}&title=${encodeURIComponent(title)}`;
       const a = document.createElement('a');
       a.href = proxyUrl;
       a.download = ''; // 文件名由后端 Content-Disposition 决定
