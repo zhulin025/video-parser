@@ -38,9 +38,6 @@ function checkRateLimit(req) {
 }
 
 function getRefererForUrl(url) {
-  if (url.includes('finder.video.qq.com') || url.includes('channels.weixin.qq.com') || url.includes('weixin.qq.com')) {
-    return 'https://channels.weixin.qq.com/';
-  }
   if (url.includes('jimeng.com') || url.includes('dreamnia') || url.includes('dreamina') || url.includes('ixigua.com') || url.includes('vlabvod.com')) {
     return 'https://jimeng.jianying.com/';
   }
@@ -56,7 +53,7 @@ function streamFromUrl(url, destRes, redirectCount = 0, rangeHeader = '') {
   const isHttps = url.startsWith('https');
   const lib = isHttps ? https : http;
   const headers = {
-    'User-Agent': url.includes('jimeng') || url.includes('dreamnia') || url.includes('dreamina') || url.includes('ixigua.com') || url.includes('vlabvod.com') || url.includes('finder.video.qq.com') ? PC_UA : MOBILE_UA,
+    'User-Agent': url.includes('jimeng') || url.includes('dreamnia') || url.includes('dreamina') || url.includes('ixigua.com') || url.includes('vlabvod.com') ? PC_UA : MOBILE_UA,
     'Referer': getRefererForUrl(url),
   };
   if (rangeHeader) {
@@ -127,7 +124,6 @@ module.exports = function handler(req, res) {
     'dreamina-de.jianying.com',
     'ixigua.com',
     'vlabvod.com',
-    'finder.video.qq.com',
   ];
   const isAllowed = videoUrl && ALLOWED_DOMAINS.some(d => videoUrl.includes(d));
   if (!isAllowed) {

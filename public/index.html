@@ -131,6 +131,36 @@
       text-overflow: ellipsis;
       white-space: nowrap;
     }
+    .history-pager {
+      display: none;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      margin-top: 12px;
+    }
+    .history-pager.visible { display: flex; }
+    .history-page-info {
+      color: var(--text-muted);
+      font-size: 11px;
+      font-weight: 600;
+      white-space: nowrap;
+    }
+    .history-page-actions {
+      display: flex;
+      gap: 8px;
+    }
+    .history-page-btn {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      color: var(--text);
+      padding: 6px 10px;
+      border-radius: 8px;
+      font-size: 11px;
+    }
+    .history-page-btn:disabled {
+      cursor: not-allowed;
+      opacity: 0.42;
+    }
 
     label { display: block; font-size: 13px; color: var(--text-muted); margin-bottom: 8px; }
 
@@ -408,14 +438,14 @@
       <div class="badge-row">
         <span class="badge">抖音</span>
         <span class="badge">即梦</span>
-        <span class="badge">视频号</span>
+        <span class="badge">通用</span>
         <span class="badge">仅用于自有内容</span>
       </div>
     </header>
 
     <div class="input-card">
       <label>粘贴分享链接或分享文字（支持完整文字，会自动提取链接）</label>
-      <textarea id="urlInput" placeholder="例如：https://v.douyin.com/xxxxxxx/&#10;或：https://weixin.qq.com/sph/xxxxxx&#10;也可以直接粘贴完整分享文字"></textarea>
+      <textarea id="urlInput" placeholder="例如：https://v.douyin.com/xxxxxxx/&#10;或直接粘贴抖音、即梦分享文案&#10;启用 yt-dlp 后可粘贴 B 站 / YouTube / X 等公开链接"></textarea>
       <div class="btn-row">
         <button class="btn-primary" id="parseBtn" onclick="parse()">解析</button>
         <button class="btn-clear" onclick="clearInput()">清除</button>
@@ -428,6 +458,7 @@
         <button class="history-clear" onclick="clearHistory()">清空</button>
       </div>
       <div class="history-list" id="historyList"></div>
+      <div class="history-pager" id="historyPager"></div>
     </div>
 
     <div class="loading" id="loading">
@@ -470,7 +501,9 @@
 
   <script>
     const HISTORY_KEY = 'video-parser-history-v1';
+    const HISTORY_PAGE_SIZE = 5;
     let lastResult = null;
+    let currentHistoryPage = 1;
 
     async function parse() {
       const input = document.getElementById('urlInput').value.trim();
@@ -591,8 +624,8 @@
         if (!urls || urls.length === 0) continue;
         anyUrl = true;
 
-        // 判断是否显示下载按钮：抖音无水印组 或 即梦所有版本（直接打开会因无 Referer 而空白）
-        const isNoWatermark = groupName.includes('无水印') || groupName.includes('水印版');
+        // 判断是否显示下载按钮：抖音/即梦走代理，yt-dlp 通用直链走浏览器直连
+        const isNoWatermark = groupName.includes('无水印') || groupName.includes('水印版') || groupName.includes('下载直链');
 
         const group = document.createElement('div');
         group.className = 'url-group';
@@ -633,7 +666,13 @@
             const dlBtn = document.createElement('button');
             dlBtn.className = 'btn-download';
             dlBtn.innerHTML = downloadButtonHTML('下载');
-            dlBtn.onclick = () => downloadVideo(url, videoTitle, dlBtn);
+            dlBtn.onclick = () => {
+              if (data.platform === 'ytdlp') {
+                directDownload(url, dlBtn);
+              } else {
+                downloadVideo(url, videoTitle, dlBtn);
+              }
+            };
             actions.appendChild(copyBtn);
             actions.appendChild(dlBtn);
           } else {
@@ -709,6 +748,7 @@
       };
       const next = [item, ...loadHistory().filter(old => old.id !== item.id)].slice(0, 12);
       localStorage.setItem(HISTORY_KEY, JSON.stringify(next));
+      currentHistoryPage = 1;
       renderHistory();
     }
 
@@ -723,13 +763,22 @@
       const history = loadHistory();
       const card = document.getElementById('historyCard');
       const list = document.getElementById('historyList');
+      const pager = document.getElementById('historyPager');
       if (!history.length) {
         card.classList.remove('visible');
         list.innerHTML = '';
+        pager.innerHTML = '';
+        pager.classList.remove('visible');
         return;
       }
-      list.innerHTML = history.map((item, index) => `
-        <button class="history-item" onclick="restoreHistory(${index})">
+
+      const pageCount = Math.max(1, Math.ceil(history.length / HISTORY_PAGE_SIZE));
+      currentHistoryPage = Math.min(Math.max(currentHistoryPage, 1), pageCount);
+      const start = (currentHistoryPage - 1) * HISTORY_PAGE_SIZE;
+      const pageItems = history.slice(start, start + HISTORY_PAGE_SIZE);
+
+      list.innerHTML = pageItems.map((item, index) => `
+        <button class="history-item" onclick="restoreHistory(${start + index})">
           ${item.cover ? `<img src="${escapeAttr(item.cover)}" alt="">` : '<img alt="">'}
           <div class="history-item-body">
             <div class="history-item-title">${escapeHtml(item.title)}</div>
@@ -737,7 +786,26 @@
           </div>
         </button>
       `).join('');
+
+      if (pageCount > 1) {
+        pager.innerHTML = `
+          <div class="history-page-info">${currentHistoryPage} / ${pageCount} · 共 ${history.length} 条</div>
+          <div class="history-page-actions">
+            <button class="history-page-btn" onclick="changeHistoryPage(-1)" ${currentHistoryPage <= 1 ? 'disabled' : ''}>上一页</button>
+            <button class="history-page-btn" onclick="changeHistoryPage(1)" ${currentHistoryPage >= pageCount ? 'disabled' : ''}>下一页</button>
+          </div>
+        `;
+        pager.classList.add('visible');
+      } else {
+        pager.innerHTML = '';
+        pager.classList.remove('visible');
+      }
       card.classList.add('visible');
+    }
+
+    function changeHistoryPage(delta) {
+      currentHistoryPage += delta;
+      renderHistory();
     }
 
     function restoreHistory(index) {
@@ -752,12 +820,13 @@
     function platformLabel(platform) {
       if (platform === 'douyin') return '抖音';
       if (platform === 'jimeng') return '即梦';
-      if (platform === 'video_channels') return '视频号';
+      if (platform === 'ytdlp') return '通用';
       return platform || '未知平台';
     }
 
     function clearHistory() {
       localStorage.removeItem(HISTORY_KEY);
+      currentHistoryPage = 1;
       renderHistory();
     }
 
@@ -784,6 +853,22 @@
         btn.classList.remove('downloading');
         btn.innerHTML = downloadButtonHTML('下载');
       }, 4000);
+    }
+
+    function directDownload(url, btn) {
+      const a = document.createElement('a');
+      a.href = url;
+      a.target = '_blank';
+      a.rel = 'noopener';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+
+      const original = btn.innerHTML;
+      btn.innerHTML = downloadButtonHTML('已打开');
+      setTimeout(() => {
+        btn.innerHTML = original;
+      }, 1800);
     }
 
     // Enter 快捷键提交

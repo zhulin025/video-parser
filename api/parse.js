@@ -1,6 +1,7 @@
 const axios = require('axios');
 const https = require('https');
 const http = require('http');
+const { execFile } = require('child_process');
 
 const MOBILE_UA = 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.0 Mobile/15E148 Safari/604.1';
 const PC_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
@@ -8,6 +9,10 @@ const RATE_LIMIT_WINDOW_MS = Number(process.env.RATE_LIMIT_WINDOW_MS || 60_000);
 const RATE_LIMIT_MAX = Number(process.env.RATE_LIMIT_MAX || 30);
 const MAX_INPUT_LENGTH = Number(process.env.MAX_INPUT_LENGTH || 3000);
 const FILE_SIZE_TIMEOUT_MS = 6000;
+const YTDLP_BIN = process.env.YTDLP_BIN || 'yt-dlp';
+const YTDLP_ARGS_PREFIX = (process.env.YTDLP_ARGS_PREFIX || '').split(/\s+/).filter(Boolean);
+const YTDLP_TIMEOUT_MS = Number(process.env.YTDLP_TIMEOUT_MS || 45_000);
+const YTDLP_MAX_FORMATS = Number(process.env.YTDLP_MAX_FORMATS || 8);
 const rateLimitStore = globalThis.__videoParserRateLimitStore || new Map();
 globalThis.__videoParserRateLimitStore = rateLimitStore;
 
@@ -106,32 +111,12 @@ function extractDouyinId(url) {
   return null;
 }
 
-function extractVideoChannelsIds(url) {
-  try {
-    const u = new URL(url);
-    const sphMatch = u.pathname.match(/\/sph\/([A-Za-z0-9_-]+)/);
-    return {
-      shortUri: sphMatch?.[1] || u.searchParams.get('id') || '',
-      exportId: u.searchParams.get('eid') || u.searchParams.get('exportid') || '',
-    };
-  } catch (_) {
-    return { shortUri: '', exportId: '' };
-  }
-}
-
 function extractUrl(text) {
   const m = text.match(/https?:\/\/[^\s"'<>]+/);
   return m ? m[0] : null;
 }
 
-function isVideoChannelsUrl(url) {
-  return url.includes('weixin.qq.com') || url.includes('channels.weixin.qq.com') || url.includes('finder.video.qq.com');
-}
-
 function getRefererForUrl(url) {
-  if (isVideoChannelsUrl(url)) {
-    return 'https://channels.weixin.qq.com/';
-  }
   if (url.includes('jimeng.com') || url.includes('dreamnia') || url.includes('dreamina') || url.includes('ixigua.com') || url.includes('vlabvod.com')) {
     return 'https://jimeng.jianying.com/';
   }
@@ -139,7 +124,6 @@ function getRefererForUrl(url) {
 }
 
 function getUserAgentForUrl(url) {
-  if (isVideoChannelsUrl(url)) return PC_UA;
   return url.includes('jimeng') || url.includes('dreamnia') || url.includes('dreamina') || url.includes('ixigua.com') || url.includes('vlabvod.com')
     ? PC_UA
     : MOBILE_UA;
@@ -205,12 +189,6 @@ function sortCandidates(candidates) {
     }
   }
   return [...byUrl.values()].sort((a, b) => b.score - a.score);
-}
-
-function createRid() {
-  const ts = Math.floor(Date.now() / 1000).toString(16);
-  const rand = Math.floor(Math.random() * 0xffffffff).toString(16).padStart(8, '0');
-  return `${ts}-${rand}`;
 }
 
 function parseTotalSize(headers) {
@@ -521,97 +499,125 @@ function isJimengCurrentVideoMetadata(metadata, videoId) {
   return knownIds.includes(String(videoId));
 }
 
-async function parseVideoChannels(rawUrl) {
-  const finalUrl = await followRedirects(rawUrl);
-  const ids = {
-    ...extractVideoChannelsIds(rawUrl),
-    ...Object.fromEntries(Object.entries(extractVideoChannelsIds(finalUrl)).filter(([, value]) => value)),
-  };
-
-  if (!ids.shortUri && !ids.exportId) {
-    throw new Error(`无法从视频号链接提取短链 ID 或 exportId: ${finalUrl}`);
-  }
-
-  const firstPayload = ids.shortUri
-    ? { baseReq: { generalToken: '' }, shortUri: ids.shortUri }
-    : { baseReq: { generalToken: '' }, exportId: ids.exportId };
-  const firstData = await fetchVideoChannelsFeedInfo(firstPayload, finalUrl);
-  const firstFeed = firstData.data?.feedInfo || {};
-  const sceneInfo = firstData.data?.sceneInfo || {};
-
-  let feedInfo = firstFeed;
-  let exportId = ids.exportId || sceneInfo.dynamicExportId || '';
-  let errMsg = firstData.data?.errMsg;
-
-  const firstUrls = collectVideoChannelsUrls(firstFeed);
-  if (firstUrls.length === 0 && exportId && ids.shortUri) {
-    const secondData = await fetchVideoChannelsFeedInfo(
-      { baseReq: { generalToken: '' }, exportId },
-      `https://channels.weixin.qq.com/finder-preview/pages/feed?eid=${encodeURIComponent(exportId)}`
-    );
-    const secondFeed = secondData.data?.feedInfo || {};
-    if (Object.keys(secondFeed).length > 0) {
-      feedInfo = secondFeed;
-    }
-    errMsg = secondData.data?.errMsg || errMsg;
-  }
-
-  const videoUrls = dedupe(collectVideoChannelsUrls(feedInfo));
-  if (videoUrls.length === 0) {
-    throw new ApiError('NO_VIDEO_CHANNELS_URL', '未找到视频号视频播放地址，公开视频接口只返回了封面或内容暂不可播放', {
-      shortUri: ids.shortUri,
-      exportId,
-      errMsg,
-      feedKeys: Object.keys(feedInfo),
+async function parseWithYtDlp(rawUrl) {
+  const info = await runYtDlpJson(rawUrl);
+  const candidates = collectYtDlpCandidates(info);
+  if (candidates.length === 0) {
+    throw new ApiError('YTDLP_NO_URL', 'yt-dlp 未返回可直接访问的视频地址', {
+      extractor: info.extractor_key || info.extractor || '',
+      title: info.title || '',
     });
   }
 
   return {
-    platform: 'video_channels',
-    videoId: exportId || ids.shortUri,
-    title: feedInfo.description || `视频号 ${ids.shortUri || exportId}`,
-    author: firstData.data?.authorInfo?.nickname || '',
-    cover: feedInfo.coverUrl || '',
-    duration: Number(feedInfo.videoDuration || feedInfo.duration || 0) * 1000 || 0,
-    width: Number(feedInfo.width || feedInfo.videoWidth || 0),
-    height: Number(feedInfo.height || feedInfo.videoHeight || 0),
+    platform: 'ytdlp',
+    videoId: info.id || rawUrl,
+    title: info.title || `通用视频 ${info.id || ''}`.trim(),
+    author: info.uploader || info.channel || info.creator || '',
+    cover: info.thumbnail || '',
+    duration: info.duration ? Number(info.duration) * 1000 : 0,
+    width: Number(info.width || 0),
+    height: Number(info.height || 0),
     videoUrls: {
-      '无水印原始播放流': videoUrls,
+      '通用下载直链（yt-dlp）': candidates.map(item => item.url),
     },
+    urlDetails: candidates.map(item => ({
+      url: item.url,
+      host: item.host,
+      source: item.source,
+      quality: item.quality,
+      bitrate: item.bitrate,
+      hasWatermark: false,
+      isCleanHint: true,
+      score: item.score,
+      ext: item.ext,
+      protocol: item.protocol,
+    })),
+    extractor: info.extractor_key || info.extractor || '',
   };
 }
 
-async function fetchVideoChannelsFeedInfo(payload, referer) {
-  const pageUrl = 'https://channels.weixin.qq.com/finder-preview/pages/sph';
-  const resp = await axios.post('https://channels.weixin.qq.com/finder-preview/api/feed/get_feed_info', payload, {
-    params: {
-      _rid: createRid(),
-      _pageUrl: pageUrl,
-    },
-    headers: {
-      'Content-Type': 'application/json',
-      'User-Agent': PC_UA,
-      'Origin': 'https://channels.weixin.qq.com',
-      'Referer': referer || pageUrl,
-      'Accept': 'application/json, text/plain, */*',
-      'X-Requested-With': 'XMLHttpRequest',
-    },
-    timeout: 15000,
+function runYtDlpJson(url) {
+  return new Promise((resolve, reject) => {
+    execFile(YTDLP_BIN, [
+      ...YTDLP_ARGS_PREFIX,
+      '--ignore-config',
+      '--dump-single-json',
+      '--no-playlist',
+      '--no-warnings',
+      '--skip-download',
+      url,
+    ], {
+      timeout: YTDLP_TIMEOUT_MS,
+      maxBuffer: 12 * 1024 * 1024,
+    }, (error, stdout, stderr) => {
+      if (error) {
+        const reason = stderr?.trim() || error.message;
+        reject(new ApiError('YTDLP_FAILED', `yt-dlp 解析失败: ${reason}`, {
+          bin: YTDLP_BIN,
+          argsPrefix: YTDLP_ARGS_PREFIX,
+          timeoutMs: YTDLP_TIMEOUT_MS,
+        }));
+        return;
+      }
+      try {
+        resolve(JSON.parse(stdout));
+      } catch (err) {
+        reject(new ApiError('YTDLP_JSON_FAILED', 'yt-dlp 输出 JSON 解析失败', {
+          cause: err.message,
+        }));
+      }
+    });
   });
-  const data = resp.data;
-  if (data.errCode && data.errCode !== 0) {
-    throw new Error(`视频号 API 返回错误: ${data.errMsg || data.errCode}`);
-  }
-  return data;
 }
 
-function collectVideoChannelsUrls(feedInfo) {
-  return [
-    feedInfo?.h265VideoInfo?.videoUrl,
-    feedInfo?.h264VideoInfo?.videoUrl,
-    feedInfo?.videoUrl,
-    feedInfo?.url,
-  ].filter(url => typeof url === 'string' && /^https?:\/\//.test(url));
+function collectYtDlpCandidates(info) {
+  const seen = new Set();
+  const candidates = [];
+
+  function push(format, source) {
+    const url = format?.url;
+    if (!url || seen.has(url) || !/^https?:\/\//.test(url)) return;
+    seen.add(url);
+    let host = '';
+    try { host = new URL(url).host; } catch (_) {}
+    const height = Number(format.height || 0);
+    const bitrate = Number(format.tbr || format.vbr || format.abr || 0);
+    const ext = format.ext || info.ext || '';
+    const protocol = format.protocol || '';
+    candidates.push({
+      url,
+      host,
+      source,
+      quality: height ? `${height}p` : format.format_note || format.format_id || '',
+      bitrate,
+      ext,
+      protocol,
+      score: scoreYtDlpFormat({ height, bitrate, ext, protocol, hasVideo: format.vcodec !== 'none', hasAudio: format.acodec !== 'none' }),
+    });
+  }
+
+  push(info, 'yt-dlp.primary');
+  for (const format of info.requested_downloads || []) push(format, 'yt-dlp.requested_downloads');
+  for (const format of info.requested_formats || []) push(format, 'yt-dlp.requested_formats');
+  for (const format of info.formats || []) push(format, 'yt-dlp.formats');
+
+  return candidates
+    .filter(item => !/mhtml|storyboard|images/i.test(item.ext))
+    .sort((a, b) => b.score - a.score)
+    .slice(0, YTDLP_MAX_FORMATS);
+}
+
+function scoreYtDlpFormat(format) {
+  let score = 0;
+  if (format.hasVideo) score += 800;
+  if (format.hasAudio) score += 250;
+  if (format.ext === 'mp4') score += 180;
+  if (format.protocol === 'https') score += 80;
+  if (String(format.protocol).includes('m3u8')) score -= 120;
+  score += Math.min(format.height || 0, 2160) / 2;
+  score += Math.min(format.bitrate || 0, 12000) / 20;
+  return Math.round(score);
 }
 
 // Vercel serverless function 入口
@@ -642,10 +648,10 @@ module.exports = async function handler(req, res) {
       result = await withStage('DOUYIN_PARSE_FAILED', () => parseDouyin(url));
     } else if (url.includes('jimeng.jianying.com') || url.includes('jianying.com')) {
       result = await withStage('JIMENG_PARSE_FAILED', () => parseJimeng(url));
-    } else if (url.includes('weixin.qq.com') || url.includes('channels.weixin.qq.com')) {
-      result = await withStage('VIDEO_CHANNELS_PARSE_FAILED', () => parseVideoChannels(url));
+    } else if (process.env.YTDLP_ENABLED === '1') {
+      result = await withStage('YTDLP_PARSE_FAILED', () => parseWithYtDlp(url));
     } else {
-      return res.json({ success: false, error: '暂不支持该平台，目前支持：抖音、即梦、视频号' });
+      return res.json({ success: false, error: '暂不支持该平台，目前支持：抖音、即梦；通用 yt-dlp 解析需设置 YTDLP_ENABLED=1 后启用' });
     }
 
     result = await withStage('FILE_SIZE_LOOKUP_FAILED', () => enrichWithFileSizes(result));

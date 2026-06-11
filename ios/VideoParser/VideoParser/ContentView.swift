@@ -194,7 +194,7 @@ struct HeaderView: View {
                 HStack(spacing: 8) {
                     PlatformPill(text: "抖音")
                     PlatformPill(text: "即梦")
-                    PlatformPill(text: "视频号")
+                    PlatformPill(text: "通用")
                 }
             }
 
@@ -913,7 +913,7 @@ struct FooterView: View {
 private func platformDisplayName(_ platform: String) -> String {
     if platform == "douyin" { return "抖音" }
     if platform == "jimeng" { return "即梦" }
-    if platform == "video_channels" { return "视频号" }
+    if platform == "ytdlp" { return "通用" }
     return platform
 }
 

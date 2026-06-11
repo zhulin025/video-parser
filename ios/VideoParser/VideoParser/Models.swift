@@ -83,7 +83,7 @@ struct ParsedVideo: Identifiable {
     var platformName: String {
         if platform == "douyin" { return "抖音" }
         if platform == "jimeng" { return "即梦" }
-        if platform == "video_channels" { return "视频号" }
+        if platform == "ytdlp" { return "通用" }
         return platform
     }
 

@@ -1,10 +1,18 @@
 # 视频原始 CDN 链接解析工具
 
-从抖音、即梦、视频号分享链接中提取可播放的视频 CDN 地址。前端可以直接粘贴完整分享文案，后端会自动提取其中的 URL、跟踪短链跳转、请求平台分享页或分享 API，并返回可复制、打开或代理下载的视频地址。
+从抖音、即梦分享链接中提取可播放的视频 CDN 地址。前端可以直接粘贴完整分享文案，后端会自动提取其中的 URL、跟踪短链跳转、请求平台分享页或分享 API，并返回可复制、打开或代理下载的视频地址。
 
 > 仅用于解析和下载你自己创作或有权使用的内容。CDN 地址由平台接口返回，通常有时效性，本项目不存储视频文件。
 
-当前版本：`0.6.0`
+当前版本：`0.7.0`
+
+## v0.7 更新
+
+- 最近解析分页：网页端历史记录每页显示 5 条，避免移动端列表过长。
+- 平台范围收敛：暂时移除视频号页面入口和解析代码，避免给用户展示不可用能力。
+- 通用解析预留：加入可选 `yt-dlp` fallback，受控环境设置 `YTDLP_ENABLED=1` 后可解析更多公开站点。
+- MITM 技术预研：README 新增 MITM 代理能力、限制和本地研究流程说明，仅作为技术方案记录。
+- 端侧展示同步：网页端和 iOS 端同步通用解析平台名称，移除视频号相关展示。
 
 ## v0.6 更新
 
@@ -20,7 +28,7 @@
 - 支持粘贴完整分享文字，自动提取第一个 `http/https` 链接。
 - 支持抖音分享链接解析。
 - 支持即梦分享链接解析。
-- 支持视频号公开 H5 接口解析；若微信只返回封面或提示暂不可播放，会返回明确诊断信息。
+- 支持 `yt-dlp` 驱动的通用 URL 解析，可覆盖 YouTube、B 站、X、TikTok 等大量公开站点，前提是部署环境已安装 `yt-dlp`。
 - 支持即梦无水印候选评分和最优链接排序。
 - 支持读取 CDN 文件大小，便于用户按文件体积选择下载链接。
 - 返回视频标题、作者、封面、尺寸、时长等元信息。
@@ -49,6 +57,11 @@
 | `RATE_LIMIT_MAX` | `30` | 每个 IP 每个窗口内的解析请求上限。 |
 | `DOWNLOAD_RATE_LIMIT_MAX` | `60` | 每个 IP 每个窗口内的下载请求上限。 |
 | `MAX_INPUT_LENGTH` | `3000` | 解析接口最大输入长度。 |
+| `YTDLP_ENABLED` | `0` | 是否启用 `yt-dlp` 通用解析 fallback。公开部署建议保持关闭；受控环境设为 `1` 启用。 |
+| `YTDLP_BIN` | `yt-dlp` | `yt-dlp` 可执行文件路径。 |
+| `YTDLP_ARGS_PREFIX` | 空 | `yt-dlp` 前置参数。若用 Python 模块运行，可设 `YTDLP_BIN=python3`、`YTDLP_ARGS_PREFIX="-m yt_dlp"`。 |
+| `YTDLP_TIMEOUT_MS` | `45000` | 单次 `yt-dlp` 解析超时，单位毫秒。 |
+| `YTDLP_MAX_FORMATS` | `8` | 通用解析最多返回的格式直链数量。 |
 
 ## 本地运行
 
@@ -67,6 +80,12 @@ http://localhost:3399
 
 ```bash
 npm run dev
+```
+
+检查本机是否安装 `yt-dlp`：
+
+```bash
+npm run yt-dlp:version
 ```
 
 ## API
@@ -158,9 +177,9 @@ Content-Type: application/json
 - `INPUT_TOO_LONG`：输入内容超过最大长度。
 - `DOUYIN_PARSE_FAILED`：抖音解析阶段失败。
 - `JIMENG_PARSE_FAILED`：即梦解析阶段失败。
-- `VIDEO_CHANNELS_PARSE_FAILED`：视频号解析阶段失败。
+- `YTDLP_PARSE_FAILED`：通用 `yt-dlp` 解析阶段失败。
 - `NO_CLEAN_URL`：没有找到可判断为无水印的地址。
-- `NO_VIDEO_CHANNELS_URL`：视频号公开接口没有返回视频播放地址，常见于短链只允许跳转微信客户端或内容暂不可播放。
+- `YTDLP_NO_URL`：`yt-dlp` 识别到了页面，但没有返回可直接访问的视频 URL。
 - `FILE_SIZE_LOOKUP_FAILED`：文件大小探测阶段失败。
 
 ### 代理下载
@@ -687,6 +706,105 @@ content-type: video/mp4
 ```
 
 这说明链接是可播放的视频文件。
+
+## 通用下载扩展：yt-dlp
+
+### 结论
+
+- `yt-dlp` 适合做服务端或本机后端的“通用 URL 解析器”。它通过站点 extractor 获取视频元数据和候选格式，项目已把它接入 `/api/parse` 的兜底分支。
+- `yt-dlp` 默认关闭，需要设置 `YTDLP_ENABLED=1` 才会作为兜底解析器启用。
+- Vercel 默认不自带 `yt-dlp` 二进制，因此该能力更适合自建服务器、本地电脑、Docker 或其他可安装系统工具的运行环境。
+
+参考：
+
+- `yt-dlp` 官方仓库和支持站点列表：[yt-dlp/yt-dlp](https://github.com/yt-dlp/yt-dlp)
+
+### yt-dlp 集成方式
+
+项目会在抖音、即梦专用解析都不匹配，且 `YTDLP_ENABLED=1` 时，尝试调用：
+
+```bash
+yt-dlp --dump-single-json --no-playlist --no-warnings --skip-download "<URL>"
+```
+
+后端会从 `url`、`requested_downloads`、`requested_formats` 和 `formats` 中筛选候选直链，按是否包含视频/音频、是否为 MP4、清晰度、码率等排序，最多返回 `YTDLP_MAX_FORMATS` 条。
+
+安装示例：
+
+```bash
+brew install yt-dlp
+# 或
+pipx install yt-dlp
+# 或
+python3 -m pip install --user -U yt-dlp
+```
+
+验证：
+
+```bash
+npm run yt-dlp:version
+```
+
+如果系统里的 `yt-dlp` 命令因为 Python 路径损坏无法运行，可以用 Python 模块方式启动后端：
+
+```bash
+YTDLP_BIN=python3 YTDLP_ARGS_PREFIX="-m yt_dlp" npm run dev
+```
+
+注意事项：
+
+- Vercel 默认不自带 `yt-dlp` 二进制。要在线上启用，需要自定义部署环境，或改用轻量服务器/Docker。
+- 公开部署时不建议默认启用 `yt-dlp`，因为它会让服务器请求任意用户输入 URL，存在 SSRF 和资源消耗风险；建议配合 Token 鉴权、限流和可信用户使用。
+- 很多站点返回的是临时签名 URL，可能几分钟到数小时内过期。
+- 有些站点需要登录 Cookie、地区 IP、会员权限或反爬验证。当前项目没有保存用户 Cookie，也不会绕过登录权限。
+- `yt-dlp` 对 YouTube、B 站、X、TikTok 等平台支持较广，但不同站点会随接口变化而失效，需要定期更新。
+- 通用直链按钮在网页端采用浏览器直连打开，不走 `/api/download` 代理，避免把下载接口变成任意 URL 开放代理。
+
+## MITM 代理技术预研
+
+MITM 是 Man-in-the-Middle 的缩写，常见工具是 `mitmproxy`。它的原理是在本机或局域网中启动一个代理，让手机或浏览器把 HTTPS 流量经过这个代理；安装并信任代理证书后，代理可以解密 HTTPS 请求和响应，从而看到 App 或网页实际请求的媒体 CDN URL。
+
+### 能解决什么
+
+- 当平台公开 H5/API 不返回真实视频地址时，可以在本机播放内容的同时观察实际网络请求。
+- 对微信视频号这类客户端内播放场景，MITM 有机会捕获 `finder.video.qq.com`、`mpvideo.qpic.cn` 等媒体域名的临时 CDN URL。
+- 抓到的 URL 可以用于排查接口字段、验证下载速度、判断是否有 token、Referer、Range 等限制。
+
+### 为什么不集成到线上服务
+
+- MITM 需要用户主动配置代理并安装证书，不适合网页服务自动完成。
+- MITM 会解密 HTTPS 流量，可能包含 Cookie、Token、账号信息等敏感数据。
+- 公开部署 MITM 代理会带来严重安全和隐私风险。
+- 抓到的 CDN URL 通常是临时签名地址，具有时效性，不能作为稳定 API。
+
+### 本地研究流程
+
+安装：
+
+```bash
+brew install mitmproxy
+# 或
+python3 -m pip install --user mitmproxy
+```
+
+启动代理：
+
+```bash
+mitmproxy
+```
+
+使用步骤：
+
+1. 让手机和电脑处于同一局域网。
+2. 手机 Wi-Fi 代理设置为电脑 IP，端口使用 mitmproxy 默认端口 `8080`。
+3. 手机访问 `http://mitm.it`，安装并信任证书。
+4. 打开目标 App 或网页，播放自己有权处理的视频内容。
+5. 在 mitmproxy 中搜索 `video`、`mp4`、`m3u8`、`finder.video.qq.com`、`mpvideo.qpic.cn` 等关键词。
+6. 复制可疑 URL 后，用 `curl -I -L '<URL>'` 验证 `content-type`、`content-length`、`content-range`。
+
+### 项目当前态度
+
+当前项目不集成 MITM，不提供视频号自动解析入口。MITM 只作为技术预研和本地排查方法记录在这里；真正产品化时，应优先使用平台公开接口、用户授权导入或本地客户端能力，而不是让线上服务器代理或解密用户流量。
 
 ## iOS App
 
