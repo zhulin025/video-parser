@@ -222,40 +222,49 @@ function getUrlFileInfo(url) {
       });
     }
 
-    let parsed;
-    try {
-      parsed = new URL(url);
-    } catch (err) {
-      done({ error: 'URL 无效' });
-      return;
-    }
-
-    const lib = parsed.protocol === 'https:' ? https : http;
-    const req = lib.get(url, {
-      headers: {
-        'User-Agent': getUserAgentForUrl(url),
-        'Referer': getRefererForUrl(url),
-        'Range': 'bytes=0-0',
-      },
-      timeout: FILE_SIZE_TIMEOUT_MS,
-    }, res => {
-      if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
-        res.resume();
-        done({ error: '文件大小探测遇到重定向' });
+    function request(currentUrl, redirectCount = 0) {
+      let parsed;
+      try {
+        parsed = new URL(currentUrl);
+      } catch (err) {
+        done({ error: 'URL 无效' });
         return;
       }
-      const sizeBytes = parseTotalSize(res.headers);
-      res.resume();
-      done({ sizeBytes });
-    });
-    req.on('timeout', () => {
-      req.destroy();
-      done({ error: '文件大小探测超时' });
-    });
-    req.on('error', err => {
-      if (settled && err.code === 'ECONNRESET') return;
-      done({ error: err.message });
-    });
+
+      const lib = parsed.protocol === 'https:' ? https : http;
+      const req = lib.get(currentUrl, {
+        headers: {
+          'User-Agent': getUserAgentForUrl(currentUrl),
+          'Referer': getRefererForUrl(currentUrl),
+          'Range': 'bytes=0-0',
+        },
+        timeout: FILE_SIZE_TIMEOUT_MS,
+      }, res => {
+        if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
+          res.resume();
+          if (redirectCount >= 5) {
+            done({ error: '文件大小探测重定向次数过多' });
+            return;
+          }
+          const nextUrl = new URL(res.headers.location, currentUrl).toString();
+          request(nextUrl, redirectCount + 1);
+          return;
+        }
+        const sizeBytes = parseTotalSize(res.headers);
+        res.resume();
+        done({ sizeBytes, finalUrl: currentUrl });
+      });
+      req.on('timeout', () => {
+        req.destroy();
+        done({ error: '文件大小探测超时' });
+      });
+      req.on('error', err => {
+        if (settled && err.code === 'ECONNRESET') return;
+        done({ error: err.message });
+      });
+    }
+
+    request(url);
   });
 }
 

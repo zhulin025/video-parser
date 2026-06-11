@@ -90,6 +90,8 @@
     .history-list { display: grid; gap: 8px; }
     .history-item {
       width: 100%;
+      max-width: 100%;
+      min-width: 0;
       background: var(--bg);
       border: 1px solid var(--border);
       color: var(--text);
@@ -99,6 +101,12 @@
       align-items: center;
       gap: 10px;
       text-align: left;
+      overflow: hidden;
+    }
+    .history-item-body {
+      min-width: 0;
+      flex: 1;
+      overflow: hidden;
     }
     .history-item img {
       width: 42px;
@@ -119,6 +127,9 @@
       margin-top: 3px;
       font-size: 11px;
       color: var(--text-muted);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
     }
 
     label { display: block; font-size: 13px; color: var(--text-muted); margin-bottom: 8px; }
@@ -719,7 +730,7 @@
       list.innerHTML = history.map((item, index) => `
         <button class="history-item" onclick="restoreHistory(${index})">
           ${item.cover ? `<img src="${escapeAttr(item.cover)}" alt="">` : '<img alt="">'}
-          <div style="min-width:0;flex:1">
+          <div class="history-item-body">
             <div class="history-item-title">${escapeHtml(item.title)}</div>
             <div class="history-item-meta">${item.platform === 'douyin' ? '抖音' : '即梦'} · ${new Date(item.savedAt).toLocaleString()}</div>
           </div>
