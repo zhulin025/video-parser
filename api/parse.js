@@ -106,12 +106,32 @@ function extractDouyinId(url) {
   return null;
 }
 
+function extractVideoChannelsIds(url) {
+  try {
+    const u = new URL(url);
+    const sphMatch = u.pathname.match(/\/sph\/([A-Za-z0-9_-]+)/);
+    return {
+      shortUri: sphMatch?.[1] || u.searchParams.get('id') || '',
+      exportId: u.searchParams.get('eid') || u.searchParams.get('exportid') || '',
+    };
+  } catch (_) {
+    return { shortUri: '', exportId: '' };
+  }
+}
+
 function extractUrl(text) {
   const m = text.match(/https?:\/\/[^\s"'<>]+/);
   return m ? m[0] : null;
 }
 
+function isVideoChannelsUrl(url) {
+  return url.includes('weixin.qq.com') || url.includes('channels.weixin.qq.com') || url.includes('finder.video.qq.com');
+}
+
 function getRefererForUrl(url) {
+  if (isVideoChannelsUrl(url)) {
+    return 'https://channels.weixin.qq.com/';
+  }
   if (url.includes('jimeng.com') || url.includes('dreamnia') || url.includes('dreamina') || url.includes('ixigua.com') || url.includes('vlabvod.com')) {
     return 'https://jimeng.jianying.com/';
   }
@@ -119,6 +139,7 @@ function getRefererForUrl(url) {
 }
 
 function getUserAgentForUrl(url) {
+  if (isVideoChannelsUrl(url)) return PC_UA;
   return url.includes('jimeng') || url.includes('dreamnia') || url.includes('dreamina') || url.includes('ixigua.com') || url.includes('vlabvod.com')
     ? PC_UA
     : MOBILE_UA;
@@ -184,6 +205,12 @@ function sortCandidates(candidates) {
     }
   }
   return [...byUrl.values()].sort((a, b) => b.score - a.score);
+}
+
+function createRid() {
+  const ts = Math.floor(Date.now() / 1000).toString(16);
+  const rand = Math.floor(Math.random() * 0xffffffff).toString(16).padStart(8, '0');
+  return `${ts}-${rand}`;
 }
 
 function parseTotalSize(headers) {
@@ -494,6 +521,99 @@ function isJimengCurrentVideoMetadata(metadata, videoId) {
   return knownIds.includes(String(videoId));
 }
 
+async function parseVideoChannels(rawUrl) {
+  const finalUrl = await followRedirects(rawUrl);
+  const ids = {
+    ...extractVideoChannelsIds(rawUrl),
+    ...Object.fromEntries(Object.entries(extractVideoChannelsIds(finalUrl)).filter(([, value]) => value)),
+  };
+
+  if (!ids.shortUri && !ids.exportId) {
+    throw new Error(`无法从视频号链接提取短链 ID 或 exportId: ${finalUrl}`);
+  }
+
+  const firstPayload = ids.shortUri
+    ? { baseReq: { generalToken: '' }, shortUri: ids.shortUri }
+    : { baseReq: { generalToken: '' }, exportId: ids.exportId };
+  const firstData = await fetchVideoChannelsFeedInfo(firstPayload, finalUrl);
+  const firstFeed = firstData.data?.feedInfo || {};
+  const sceneInfo = firstData.data?.sceneInfo || {};
+
+  let feedInfo = firstFeed;
+  let exportId = ids.exportId || sceneInfo.dynamicExportId || '';
+  let errMsg = firstData.data?.errMsg;
+
+  const firstUrls = collectVideoChannelsUrls(firstFeed);
+  if (firstUrls.length === 0 && exportId && ids.shortUri) {
+    const secondData = await fetchVideoChannelsFeedInfo(
+      { baseReq: { generalToken: '' }, exportId },
+      `https://channels.weixin.qq.com/finder-preview/pages/feed?eid=${encodeURIComponent(exportId)}`
+    );
+    const secondFeed = secondData.data?.feedInfo || {};
+    if (Object.keys(secondFeed).length > 0) {
+      feedInfo = secondFeed;
+    }
+    errMsg = secondData.data?.errMsg || errMsg;
+  }
+
+  const videoUrls = dedupe(collectVideoChannelsUrls(feedInfo));
+  if (videoUrls.length === 0) {
+    throw new ApiError('NO_VIDEO_CHANNELS_URL', '未找到视频号视频播放地址，公开视频接口只返回了封面或内容暂不可播放', {
+      shortUri: ids.shortUri,
+      exportId,
+      errMsg,
+      feedKeys: Object.keys(feedInfo),
+    });
+  }
+
+  return {
+    platform: 'video_channels',
+    videoId: exportId || ids.shortUri,
+    title: feedInfo.description || `视频号 ${ids.shortUri || exportId}`,
+    author: firstData.data?.authorInfo?.nickname || '',
+    cover: feedInfo.coverUrl || '',
+    duration: Number(feedInfo.videoDuration || feedInfo.duration || 0) * 1000 || 0,
+    width: Number(feedInfo.width || feedInfo.videoWidth || 0),
+    height: Number(feedInfo.height || feedInfo.videoHeight || 0),
+    videoUrls: {
+      '无水印原始播放流': videoUrls,
+    },
+  };
+}
+
+async function fetchVideoChannelsFeedInfo(payload, referer) {
+  const pageUrl = 'https://channels.weixin.qq.com/finder-preview/pages/sph';
+  const resp = await axios.post('https://channels.weixin.qq.com/finder-preview/api/feed/get_feed_info', payload, {
+    params: {
+      _rid: createRid(),
+      _pageUrl: pageUrl,
+    },
+    headers: {
+      'Content-Type': 'application/json',
+      'User-Agent': PC_UA,
+      'Origin': 'https://channels.weixin.qq.com',
+      'Referer': referer || pageUrl,
+      'Accept': 'application/json, text/plain, */*',
+      'X-Requested-With': 'XMLHttpRequest',
+    },
+    timeout: 15000,
+  });
+  const data = resp.data;
+  if (data.errCode && data.errCode !== 0) {
+    throw new Error(`视频号 API 返回错误: ${data.errMsg || data.errCode}`);
+  }
+  return data;
+}
+
+function collectVideoChannelsUrls(feedInfo) {
+  return [
+    feedInfo?.h265VideoInfo?.videoUrl,
+    feedInfo?.h264VideoInfo?.videoUrl,
+    feedInfo?.videoUrl,
+    feedInfo?.url,
+  ].filter(url => typeof url === 'string' && /^https?:\/\//.test(url));
+}
+
 // Vercel serverless function 入口
 module.exports = async function handler(req, res) {
   // 允许跨域（以防从其他域访问）
@@ -522,8 +642,10 @@ module.exports = async function handler(req, res) {
       result = await withStage('DOUYIN_PARSE_FAILED', () => parseDouyin(url));
     } else if (url.includes('jimeng.jianying.com') || url.includes('jianying.com')) {
       result = await withStage('JIMENG_PARSE_FAILED', () => parseJimeng(url));
+    } else if (url.includes('weixin.qq.com') || url.includes('channels.weixin.qq.com')) {
+      result = await withStage('VIDEO_CHANNELS_PARSE_FAILED', () => parseVideoChannels(url));
     } else {
-      return res.json({ success: false, error: '暂不支持该平台，目前支持：抖音、即梦' });
+      return res.json({ success: false, error: '暂不支持该平台，目前支持：抖音、即梦、视频号' });
     }
 
     result = await withStage('FILE_SIZE_LOOKUP_FAILED', () => enrichWithFileSizes(result));

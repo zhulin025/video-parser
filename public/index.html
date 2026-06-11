@@ -408,13 +408,14 @@
       <div class="badge-row">
         <span class="badge">抖音</span>
         <span class="badge">即梦</span>
+        <span class="badge">视频号</span>
         <span class="badge">仅用于自有内容</span>
       </div>
     </header>
 
     <div class="input-card">
       <label>粘贴分享链接或分享文字（支持完整文字，会自动提取链接）</label>
-      <textarea id="urlInput" placeholder="例如：https://v.douyin.com/xxxxxxx/&#10;或直接粘贴抖音分享的完整文字也可以"></textarea>
+      <textarea id="urlInput" placeholder="例如：https://v.douyin.com/xxxxxxx/&#10;或：https://weixin.qq.com/sph/xxxxxx&#10;也可以直接粘贴完整分享文字"></textarea>
       <div class="btn-row">
         <button class="btn-primary" id="parseBtn" onclick="parse()">解析</button>
         <button class="btn-clear" onclick="clearInput()">清除</button>
@@ -558,7 +559,7 @@
       }
 
       document.getElementById('videoTitle').textContent = data.title || '(无标题)';
-      document.getElementById('platformTag').textContent = data.platform === 'douyin' ? '抖音' : '即梦';
+      document.getElementById('platformTag').textContent = platformLabel(data.platform);
 
       const author = document.getElementById('authorTag');
       author.textContent = data.author ? '@' + data.author : '';
@@ -732,7 +733,7 @@
           ${item.cover ? `<img src="${escapeAttr(item.cover)}" alt="">` : '<img alt="">'}
           <div class="history-item-body">
             <div class="history-item-title">${escapeHtml(item.title)}</div>
-            <div class="history-item-meta">${item.platform === 'douyin' ? '抖音' : '即梦'} · ${new Date(item.savedAt).toLocaleString()}</div>
+            <div class="history-item-meta">${platformLabel(item.platform)} · ${new Date(item.savedAt).toLocaleString()}</div>
           </div>
         </button>
       `).join('');
@@ -746,6 +747,13 @@
       hideAll();
       showResult(item.result);
       window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+
+    function platformLabel(platform) {
+      if (platform === 'douyin') return '抖音';
+      if (platform === 'jimeng') return '即梦';
+      if (platform === 'video_channels') return '视频号';
+      return platform || '未知平台';
     }
 
     function clearHistory() {

@@ -194,6 +194,7 @@ struct HeaderView: View {
                 HStack(spacing: 8) {
                     PlatformPill(text: "抖音")
                     PlatformPill(text: "即梦")
+                    PlatformPill(text: "视频号")
                 }
             }
 
@@ -429,7 +430,7 @@ struct HistoryView: View {
                                         .font(.system(size: 12, weight: .bold))
                                         .foregroundStyle(.black)
                                         .lineLimit(1)
-                                    Text(item.platform == "douyin" ? "抖音" : "即梦")
+                                    Text(platformDisplayName(item.platform))
                                         .font(.system(size: 11, weight: .semibold))
                                         .foregroundStyle(.secondary)
                                 }
@@ -907,6 +908,13 @@ struct FooterView: View {
             .lineSpacing(4)
             .padding(.horizontal, 20)
     }
+}
+
+private func platformDisplayName(_ platform: String) -> String {
+    if platform == "douyin" { return "抖音" }
+    if platform == "jimeng" { return "即梦" }
+    if platform == "video_channels" { return "视频号" }
+    return platform
 }
 
 #Preview {
