@@ -343,6 +343,84 @@
       margin-top: 4px; line-height: 1.6;
     }
 
+    .ios-save-overlay {
+      display: none;
+      position: fixed;
+      inset: 0;
+      z-index: 9999;
+      background: rgba(0, 0, 0, 0.92);
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+      animation: fadeIn 0.25s ease;
+    }
+    .ios-save-overlay.visible { display: flex; }
+    @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+
+    .ios-save-close {
+      position: absolute;
+      top: max(16px, env(safe-area-inset-top, 16px));
+      right: 16px;
+      width: 36px; height: 36px;
+      background: rgba(255, 255, 255, 0.15);
+      border: none;
+      border-radius: 50%;
+      color: #fff;
+      font-size: 20px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      z-index: 10;
+    }
+
+    .ios-save-video {
+      max-width: 100%;
+      max-height: 60vh;
+      border-radius: 12px;
+      background: #000;
+    }
+
+    .ios-save-hint {
+      margin-top: 24px;
+      text-align: center;
+      color: #fff;
+      font-size: 15px;
+      line-height: 1.8;
+    }
+    .ios-save-hint strong {
+      color: var(--accent);
+    }
+    .ios-save-hint .ios-save-steps {
+      margin-top: 12px;
+      font-size: 13px;
+      color: rgba(255, 255, 255, 0.7);
+    }
+
+    .ios-save-progress {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 14px;
+      color: #fff;
+      font-size: 14px;
+    }
+    .ios-save-progress-bar {
+      width: 220px;
+      height: 4px;
+      background: rgba(255, 255, 255, 0.15);
+      border-radius: 2px;
+      overflow: hidden;
+    }
+    .ios-save-progress-fill {
+      height: 100%;
+      width: 0%;
+      background: var(--accent);
+      border-radius: 2px;
+      transition: width 0.2s;
+    }
+
     footer {
       margin-top: 56px; text-align: center;
       font-size: 12px; color: var(--text-muted); line-height: 2;
@@ -497,6 +575,25 @@
       本工具仅供解析你自己创作的视频，请勿用于下载他人内容<br>
       CDN 地址由平台 API 返回，本工具不存储任何数据
     </footer>
+  </div>
+
+  <div class="ios-save-overlay" id="iosSaveOverlay">
+    <button class="ios-save-close" id="iosSaveClose">&times;</button>
+    <div class="ios-save-progress" id="iosSaveProgress">
+      <div class="spinner" style="width:28px;height:28px;border-width:3px;"></div>
+      <span id="iosSaveProgressText">正在加载视频...</span>
+      <div class="ios-save-progress-bar">
+        <div class="ios-save-progress-fill" id="iosSaveProgressFill"></div>
+      </div>
+    </div>
+    <video class="ios-save-video" id="iosSaveVideo" controls playsinline webkit-playsinline preload="auto" style="display:none;"></video>
+    <div class="ios-save-hint" id="iosSaveHint" style="display:none;">
+      <strong>长按上方视频</strong><br>
+      <div class="ios-save-steps">
+        在弹出菜单中选择「存储到照片」<br>
+        即可保存到手机相册
+      </div>
+    </div>
   </div>
 
   <script>
@@ -665,7 +762,7 @@
           if (isNoWatermark) {
             const dlBtn = document.createElement('button');
             dlBtn.className = 'btn-download';
-            dlBtn.innerHTML = downloadButtonHTML('下载');
+            dlBtn.innerHTML = downloadButtonHTML(isIOS() ? '保存相册' : '下载');
             dlBtn.onclick = () => {
               if (data.platform === 'ytdlp') {
                 directDownload(url, dlBtn);
@@ -834,21 +931,105 @@
       return `<svg viewBox="0 0 16 16" fill="currentColor"><path d="M8 12l-4-4h2.5V4h3v4H12L8 12z"/><rect x="3" y="13" width="10" height="1.5" rx="0.75"/></svg>${text}`;
     }
 
+    function isIOS() {
+      return /iPad|iPhone|iPod/.test(navigator.userAgent) ||
+        (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+    }
+
+    function iosSaveToPhotos(videoSrc) {
+      const overlay = document.getElementById('iosSaveOverlay');
+      const progress = document.getElementById('iosSaveProgress');
+      const progressText = document.getElementById('iosSaveProgressText');
+      const progressFill = document.getElementById('iosSaveProgressFill');
+      const video = document.getElementById('iosSaveVideo');
+      const hint = document.getElementById('iosSaveHint');
+      const closeBtn = document.getElementById('iosSaveClose');
+
+      progress.style.display = 'flex';
+      progressText.textContent = '正在加载视频...';
+      progressFill.style.width = '0%';
+      video.style.display = 'none';
+      hint.style.display = 'none';
+      video.removeAttribute('src');
+      video.load();
+
+      overlay.classList.add('visible');
+
+      closeBtn.onclick = () => {
+        overlay.classList.remove('visible');
+        video.pause();
+        video.removeAttribute('src');
+        video.load();
+        if (window._iosSaveBlobUrl) {
+          URL.revokeObjectURL(window._iosSaveBlobUrl);
+          window._iosSaveBlobUrl = null;
+        }
+        if (window._iosSaveXhr) {
+          window._iosSaveXhr.abort();
+          window._iosSaveXhr = null;
+        }
+      };
+
+      const xhr = new XMLHttpRequest();
+      window._iosSaveXhr = xhr;
+      xhr.open('GET', videoSrc, true);
+      xhr.responseType = 'blob';
+
+      xhr.onprogress = (e) => {
+        if (e.lengthComputable) {
+          const pct = Math.round((e.loaded / e.total) * 100);
+          progressFill.style.width = pct + '%';
+          const loadedMB = (e.loaded / 1024 / 1024).toFixed(1);
+          const totalMB = (e.total / 1024 / 1024).toFixed(1);
+          progressText.textContent = '正在加载视频... ' + loadedMB + 'MB / ' + totalMB + 'MB';
+        }
+      };
+
+      xhr.onload = () => {
+        window._iosSaveXhr = null;
+        if (xhr.status >= 200 && xhr.status < 300) {
+          const blob = xhr.response;
+          const blobUrl = URL.createObjectURL(blob);
+          window._iosSaveBlobUrl = blobUrl;
+          video.src = blobUrl;
+          video.load();
+          progress.style.display = 'none';
+          video.style.display = 'block';
+          hint.style.display = 'block';
+        } else {
+          progressText.textContent = '加载失败，请重试';
+          progressFill.style.width = '0%';
+        }
+      };
+
+      xhr.onerror = () => {
+        window._iosSaveXhr = null;
+        progressText.textContent = '网络错误，请重试';
+        progressFill.style.width = '0%';
+      };
+
+      xhr.send();
+    }
+
     function downloadVideo(url, title, btn) {
       if (btn.classList.contains('downloading')) return;
 
-      // 通过后端代理下载，避免跨域和 Referer 问题
-      const proxyUrl = `/api/download?url=${encodeURIComponent(url)}&title=${encodeURIComponent(title)}`;
-      const a = document.createElement('a');
+      const proxyUrl = '/api/download?url=' + encodeURIComponent(url) + '&title=' + encodeURIComponent(title);
+
+      if (isIOS()) {
+        iosSaveToPhotos(proxyUrl + '&disposition=inline');
+        return;
+      }
+
+      var a = document.createElement('a');
       a.href = proxyUrl;
-      a.download = ''; // 文件名由后端 Content-Disposition 决定
+      a.download = '';
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
 
-      // 按钮状态反馈
       btn.classList.add('downloading');
-      btn.innerHTML = downloadButtonHTML('下载中…');
+      btn.innerHTML = downloadButtonHTML('下载中...');
       setTimeout(() => {
         btn.classList.remove('downloading');
         btn.innerHTML = downloadButtonHTML('下载');
@@ -856,7 +1037,12 @@
     }
 
     function directDownload(url, btn) {
-      const a = document.createElement('a');
+      if (isIOS()) {
+        iosSaveToPhotos(url);
+        return;
+      }
+
+      var a = document.createElement('a');
       a.href = url;
       a.target = '_blank';
       a.rel = 'noopener';
@@ -864,7 +1050,7 @@
       a.click();
       document.body.removeChild(a);
 
-      const original = btn.innerHTML;
+      var original = btn.innerHTML;
       btn.innerHTML = downloadButtonHTML('已打开');
       setTimeout(() => {
         btn.innerHTML = original;
