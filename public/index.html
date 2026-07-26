@@ -397,6 +397,18 @@
       font-size: 13px;
       color: rgba(255, 255, 255, 0.7);
     }
+    .ios-save-share {
+      width: min(320px, 100%);
+      margin-top: 20px;
+      padding: 13px 20px;
+      background: var(--accent);
+      color: #fff;
+      font-size: 15px;
+    }
+    .ios-save-share:disabled {
+      opacity: 0.55;
+      cursor: wait;
+    }
 
     .ios-save-progress {
       display: flex;
@@ -588,11 +600,12 @@
     </div>
     <video class="ios-save-video" id="iosSaveVideo" controls playsinline webkit-playsinline preload="auto" style="display:none;"></video>
     <div class="ios-save-hint" id="iosSaveHint" style="display:none;">
-      <strong>长按上方视频</strong><br>
+      <strong>视频已准备好</strong><br>
       <div class="ios-save-steps">
-        在弹出菜单中选择「存储到照片」<br>
-        即可保存到手机相册
+        点击下方按钮打开系统分享菜单<br>
+        再选择「存储视频」即可保存到相册
       </div>
+      <button class="ios-save-share" id="iosSaveShare" type="button">打开系统分享菜单</button>
     </div>
   </div>
 
@@ -936,13 +949,22 @@
         (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
     }
 
-    function iosSaveToPhotos(videoSrc) {
+    function safeVideoFilename(title) {
+      const cleaned = String(title || 'video')
+        .replace(/[\\/:*?"<>|#]/g, '')
+        .trim()
+        .substring(0, 60);
+      return (cleaned || 'video') + '.mp4';
+    }
+
+    function iosSaveToPhotos(videoSrc, title) {
       const overlay = document.getElementById('iosSaveOverlay');
       const progress = document.getElementById('iosSaveProgress');
       const progressText = document.getElementById('iosSaveProgressText');
       const progressFill = document.getElementById('iosSaveProgressFill');
       const video = document.getElementById('iosSaveVideo');
       const hint = document.getElementById('iosSaveHint');
+      const shareBtn = document.getElementById('iosSaveShare');
       const closeBtn = document.getElementById('iosSaveClose');
 
       progress.style.display = 'flex';
@@ -950,6 +972,8 @@
       progressFill.style.width = '0%';
       video.style.display = 'none';
       hint.style.display = 'none';
+      shareBtn.disabled = false;
+      shareBtn.textContent = '打开系统分享菜单';
       video.removeAttribute('src');
       video.load();
 
@@ -964,6 +988,7 @@
           URL.revokeObjectURL(window._iosSaveBlobUrl);
           window._iosSaveBlobUrl = null;
         }
+        window._iosSaveFile = null;
         if (window._iosSaveXhr) {
           window._iosSaveXhr.abort();
           window._iosSaveXhr = null;
@@ -990,7 +1015,11 @@
         if (xhr.status >= 200 && xhr.status < 300) {
           const blob = xhr.response;
           const blobUrl = URL.createObjectURL(blob);
+          const file = new File([blob], safeVideoFilename(title), {
+            type: blob.type || 'video/mp4',
+          });
           window._iosSaveBlobUrl = blobUrl;
+          window._iosSaveFile = file;
           video.src = blobUrl;
           video.load();
           progress.style.display = 'none';
@@ -1009,6 +1038,29 @@
       };
 
       xhr.send();
+
+      shareBtn.onclick = async () => {
+        const file = window._iosSaveFile;
+        if (!file) return;
+
+        shareBtn.disabled = true;
+        shareBtn.textContent = '正在打开...';
+        try {
+          if (!navigator.share || !navigator.canShare || !navigator.canShare({ files: [file] })) {
+            throw new Error('当前浏览器不支持分享视频文件');
+          }
+          await navigator.share({ files: [file], title: file.name });
+          shareBtn.textContent = '已打开分享菜单';
+        } catch (error) {
+          if (error && error.name === 'AbortError') {
+            shareBtn.textContent = '打开系统分享菜单';
+          } else {
+            shareBtn.textContent = '无法打开，请用 Safari 重试';
+          }
+        } finally {
+          shareBtn.disabled = false;
+        }
+      };
     }
 
     function downloadVideo(url, title, btn) {
@@ -1017,7 +1069,7 @@
       const proxyUrl = '/api/download?url=' + encodeURIComponent(url) + '&title=' + encodeURIComponent(title);
 
       if (isIOS()) {
-        iosSaveToPhotos(proxyUrl + '&disposition=inline');
+        iosSaveToPhotos(proxyUrl + '&disposition=inline', title);
         return;
       }
 
@@ -1038,7 +1090,7 @@
 
     function directDownload(url, btn) {
       if (isIOS()) {
-        iosSaveToPhotos(url);
+        iosSaveToPhotos(url, 'video');
         return;
       }
 
